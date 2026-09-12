@@ -27,6 +27,7 @@ from .models import (
     WeightReading,
 )
 from .protocol.constants import DEFAULT_NUTRITION_SCALE
+from .protocol.food_decode import parse_common_food_payload
 from .protocol.food_write import (
     build_delete_common_foods_frame,
     build_set_common_food_frames,
@@ -69,6 +70,7 @@ __all__ = [
     "build_set_nutrition_frame",
     "encode_nutrition_facts",
     "encode_nutrition_value_u24",
+    "parse_common_food_payload",
     "parse_food_info",
     "parse_food_info_notify",
     "parse_fun_info",

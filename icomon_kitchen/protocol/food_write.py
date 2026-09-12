@@ -12,7 +12,7 @@ from .constants import (
     CMD_COMMON_FOOD_INDEXED,
     CMD_DELETE_COMMON_FOOD,
     CMD_SET_NUTRITION,
-    COMMON_FOOD_SPLIT_FLAG,
+    COMMON_FOOD_CTRL_BYTE,
     DEFAULT_MTU,
     DEVICE_TYPE_KG2458,
 )
@@ -91,9 +91,9 @@ def build_common_food_payload(
     """
     Build the inner payload for cmd **214 / D6** or **215 / D7**.
 
-    Verified D6 layout (live HCI):
+    Verified D6 layout (round-2 live HCI):
 
-    ``u16 len | foodId u32 | 0x81 | name | icon | weight u16 | mag u8 | facts…``
+    ``u16 len | foodId u32 | ctrl 0x81 | name | icon | weight u16 | mag u8 | facts…``
 
     Facts omit a leading count byte. For **215 / D7**, ``food_index u8`` prefixes
     the length block.
@@ -101,7 +101,7 @@ def build_common_food_payload(
     name_bytes = food.name.encode("utf-8")
     inner = bytearray()
     inner.extend(_write_int_be(food.food_id))
-    inner.append(COMMON_FOOD_SPLIT_FLAG)
+    inner.append(COMMON_FOOD_CTRL_BYTE)
     inner.extend(_write_length_prefixed(name_bytes, field="name"))
     inner.extend(_write_length_prefixed(food.icon, field="icon"))
     inner.extend(_write_short_be(food.weight))

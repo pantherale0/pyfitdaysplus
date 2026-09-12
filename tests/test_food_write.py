@@ -16,10 +16,11 @@ from icomon_kitchen.protocol.constants import (
     CMD_COMMON_FOOD,
     CMD_COMMON_FOOD_INDEXED,
     CMD_SET_NUTRITION,
-    COMMON_FOOD_SPLIT_FLAG,
+    COMMON_FOOD_CTRL_BYTE,
     DEFAULT_NUTRITION_SCALE,
     DEVICE_TYPE_KG2458,
 )
+from icomon_kitchen.protocol.food_decode import parse_common_food_payload
 from icomon_kitchen.protocol.food_write import (
     build_common_food_payload,
     build_delete_common_foods_frame,
@@ -35,9 +36,24 @@ from icomon_kitchen.protocol.nutrition import (
     encode_nutrition_value_u24,
 )
 
-LIVE_D6_FRAME_HEX = (
+LIVE_D6_PRIMARY_HEX = (
     "ac4200260005f6df81097465737420666f6f6400006405000013880100145002001518040020"
     "d6a4"
+)
+LIVE_D6_CONTINUATION_HEX = "ac42002601d0050015e0d6c7"
+
+LIVE_D6_FOOD = CommonFood(
+    food_id=390879,
+    name="test food",
+    icon=b"",
+    weight=100,
+    magnification=5,
+    facts=(
+        NutritionFact(NutritionFactType.CALORIE, 50.0),
+        NutritionFact(NutritionFactType.TOTAL_CALORIE, 52.0),
+        NutritionFact(NutritionFactType.TOTAL_FAT, 54.0),
+        NutritionFact(NutritionFactType.TRANS_FAT, 0.32),
+    ),
 )
 
 
@@ -66,35 +82,44 @@ def test_set_nutrition_frame_cmd_and_checksum() -> None:
     assert frame[1] == DEVICE_TYPE_KG2458
 
 
-def test_live_d6_common_food_frame_matches_hci_vector() -> None:
-    food = CommonFood(
-        food_id=390879,
-        name="test food",
-        icon=b"",
-        weight=100,
-        magnification=5,
-        facts=(
-            NutritionFact(NutritionFactType.CALORIE, 50.0),
-            NutritionFact(NutritionFactType.TOTAL_CALORIE, 52.0),
-            NutritionFact(NutritionFactType.TOTAL_FAT, 54.0),
-            NutritionFact(NutritionFactType.TRANS_FAT, 0.32),
-        ),
-    )
-    frame = build_set_common_food_frames(food)[0]
-    assert frame.hex() == LIVE_D6_FRAME_HEX
+def test_live_d6_primary_frame_matches_locked_vector() -> None:
+    frame = build_set_common_food_frames(LIVE_D6_FOOD)[0]
+    assert frame.hex() == LIVE_D6_PRIMARY_HEX
     verify_frame(frame)
 
+
+def test_live_d6_primary_round_trips_fields() -> None:
+    frame = bytes.fromhex(LIVE_D6_PRIMARY_HEX)
+    verify_frame(frame)
+    parsed = parse_common_food_payload(frame[2:-2])
+
+    assert parsed.food_id == 390879
+    assert parsed.name == "test food"
+    assert parsed.icon == b""
+    assert parsed.weight == 100
+    assert parsed.magnification == 5
+    assert parsed.ctrl_byte == COMMON_FOOD_CTRL_BYTE
+    assert parsed.food_index is None
+
+    assert len(parsed.facts) == 4
+    assert parsed.facts[0] == NutritionFact(NutritionFactType.CALORIE, 50.0)
+    assert parsed.facts[1] == NutritionFact(NutritionFactType.TOTAL_CALORIE, 52.0)
+    assert parsed.facts[2] == NutritionFact(NutritionFactType.TOTAL_FAT, 54.0)
+    assert parsed.facts[3] == NutritionFact(NutritionFactType.TRANS_FAT, 0.32)
+
+    round_trip = build_set_common_food_frames(parsed.to_common_food())[0]
+    assert round_trip.hex() == LIVE_D6_PRIMARY_HEX
+
+
+def test_live_d6_split_continuation_frame() -> None:
+    frame = bytes.fromhex(LIVE_D6_CONTINUATION_HEX)
+    verify_frame(frame)
+    assert frame[-2] == CMD_COMMON_FOOD
+
     payload = frame[2:-2]
-    assert int.from_bytes(payload[0:2], "big") == len(payload) + 2
-    assert int.from_bytes(payload[2:6], "big") == 390879
-    assert payload[6] == COMMON_FOOD_SPLIT_FLAG
-    name_len = payload[7]
-    assert payload[8 : 8 + name_len].decode() == "test food"
-    icon_len = payload[8 + name_len]
-    assert icon_len == 0
-    offset = 8 + name_len + 1
-    assert int.from_bytes(payload[offset : offset + 2], "big") == 100
-    assert payload[offset + 2] == 5
+    assert int.from_bytes(payload[0:2], "big") == 0x0026
+    assert payload[2] == 0x01
+    assert payload[3:] == bytes.fromhex("d0050015e0")
 
 
 def test_common_food_payload_structure() -> None:
@@ -108,7 +133,7 @@ def test_common_food_payload_structure() -> None:
     )
     payload = build_common_food_payload(food, scale=1.0)
     assert payload[2:6] == b"\x00\x00\x00\x07"
-    assert payload[6] == COMMON_FOOD_SPLIT_FLAG
+    assert payload[6] == COMMON_FOOD_CTRL_BYTE
     assert b"\x04Oats" in payload
     assert b"\x02\x01\x02" in payload
     assert b"\x01\xf4" in payload
@@ -120,7 +145,7 @@ def test_common_food_indexed_payload_prefixes_food_index() -> None:
     payload = build_common_food_payload(food, food_index=3, scale=1.0)
     assert payload[0] == 3
     assert int.from_bytes(payload[3:7], "big") == 1
-    assert payload[7] == COMMON_FOOD_SPLIT_FLAG
+    assert payload[7] == COMMON_FOOD_CTRL_BYTE
 
 
 def test_common_food_split_frames_share_cmd() -> None:

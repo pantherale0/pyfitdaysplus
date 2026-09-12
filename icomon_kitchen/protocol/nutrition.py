@@ -32,9 +32,10 @@ def encode_nutrition_value(
     Default scale is :data:`~icomon_kitchen.protocol.constants.DEFAULT_NUTRITION_SCALE`
     (**x100**, verified on live D6: 50 -> 5000). Pass ``scale=1.0`` for raw integers.
 
-    When ``compact`` is true (D6 / D7 common-food bodies), live HCI uses a **2-byte
-    big-endian** value for scaled integers ``<= 0xFF`` and **3-byte u24** otherwise.
-    Cmd **213 / D5** always uses fixed 3-byte slots (``compact=False``).
+    When ``compact`` is true (D6 / D7 common-food bodies), round-2 HCI encodes
+    scaled values ``<= 0xFF`` in **2 bytes** (u24 with leading zero byte omitted).
+    Values ``> 0xFF`` use **3-byte u24 BE**. Cmd **213 / D5** always uses fixed
+    3-byte slots (``compact=False``).
     """
     multiplier = DEFAULT_NUTRITION_SCALE if scale is None else scale
     scaled = round(value * multiplier)

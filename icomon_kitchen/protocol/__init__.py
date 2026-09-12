@@ -13,6 +13,7 @@ from .constants import (
     CMD_COMMON_FOOD_INDEXED,
     CMD_DELETE_COMMON_FOOD,
     CMD_SET_NUTRITION,
+    COMMON_FOOD_CTRL_BYTE,
     COMMON_FOOD_SPLIT_FLAG,
     DEFAULT_NUTRITION_SCALE,
     DEVICE_TYPE_KG2458,
@@ -20,6 +21,7 @@ from .constants import (
     NOTIFY_FUN_INFO,
     NOTIFY_KITCHEN_SCALE_DATA,
 )
+from .food_decode import parse_common_food_payload
 from .food_write import (
     build_common_food_payload,
     build_delete_common_foods_frame,
@@ -56,6 +58,7 @@ __all__ = [
     "CMD_COMMON_FOOD_INDEXED",
     "CMD_DELETE_COMMON_FOOD",
     "CMD_SET_NUTRITION",
+    "COMMON_FOOD_CTRL_BYTE",
     "COMMON_FOOD_SPLIT_FLAG",
     "DEFAULT_NUTRITION_SCALE",
     "DEVICE_TYPE_KG2458",
@@ -82,6 +85,7 @@ __all__ = [
     "encode_nutrition_value",
     "encode_nutrition_value_u24",
     "nutrition_fact_type_from_ordinal",
+    "parse_common_food_payload",
     "parse_food_info",
     "parse_food_info_notify",
     "parse_fun_info",

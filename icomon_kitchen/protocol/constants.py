@@ -17,8 +17,9 @@ DEFAULT_BLE_NAME = "MY_SCALE"
 DEFAULT_MODEL = "KG2458ULB-D"
 DEFAULT_MTU = 512  # splitData threshold for long D6/D7 payloads (not BLE ATT size)
 
-# Live HCI D6: splitData marker immediately before name_len (214 / D6, 215 / D7).
-COMMON_FOOD_SPLIT_FLAG = 0x81
+# Live HCI D6/D7: ctrl byte 0x81 immediately before name_len (required on wire).
+COMMON_FOOD_CTRL_BYTE = 0x81
+COMMON_FOOD_SPLIT_FLAG = COMMON_FOOD_CTRL_BYTE
 
 # Verified on live D6 capture: float nutrition values use round(value * 100) → u24.
 DEFAULT_NUTRITION_SCALE = 100.0

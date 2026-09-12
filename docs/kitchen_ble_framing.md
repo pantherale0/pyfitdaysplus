@@ -1,4 +1,4 @@
-# Kitchen BLE framing (Phase 1 native notes + live HCI)
+# Kitchen BLE framing (Phase 1 native notes + round-2 live HCI)
 
 General/V2 command frames: `AC | device_type | payload… | cmd | checksum`.
 
@@ -16,9 +16,9 @@ This document covers **writing custom food + nutrition to the scale** (app → d
 
 ## Nutrition value scale
 
-Live D6 HCI confirms float values use **`round(value × 100)` → u24 BE** (50 →
-5000). The library defaults to this via
-`DEFAULT_NUTRITION_SCALE = 100`; pass `scale=1.0` to send unscaled integers.
+Round-2 D6 HCI confirms float values use **`round(value × 100)` → wire integer**
+(50 → 5000). Default: `DEFAULT_NUTRITION_SCALE = 100`; pass `scale=1.0` for raw
+integers.
 
 ## 213 / D5 — set nutrition
 
@@ -30,27 +30,37 @@ repeat count times:
   Write3ByteScaled(value)    // u24 BE, default scale ×100
 ```
 
-## 214 / D6 — common food (verified live HCI)
+## 214 / D6 — common food (round-2 locked HCI)
 
-```
-WriteShort(length BE)        // length = len(payload_block) + 2 (includes self)
-WriteInt(foodId BE)
-WriteByte(0x81)              // splitData / common-food marker (before name)
-WriteByte(name_len); WriteBytes(name)
-WriteByte(icon_len); WriteBytes(icon)
-WriteShort(weight BE)        // u16 BE
-WriteByte(magnification)
-repeat until end:
-  WriteByte(type) + scaled value (2-byte BE if value <= 0xFF else 3-byte BE)
-```
+After `AC 42`:
 
-Example frame (checksum-valid btsnoop salvage):
+1. `u16 BE` length prefix — value **`len(payload) + 2`** (`0x0026` for a 36-byte payload)
+2. `foodId` u32 BE
+3. **ctrl byte `0x81`** — live-observed; required on wire (purpose unknown)
+4. `name_len` u8 + name UTF-8
+5. `icon_len` u8 + icon bytes
+6. `weight` u16 BE grams
+7. `magnification` u8 (capture used `0x05`; Java often sends 0/1)
+8. facts: repeated **`type u8` + `value u24 BE`** (no count byte). Values `> 0xFF`
+   use 3 bytes; values `<= 0xFF` omit one leading zero byte on wire (2 bytes).
+9. trailing cmd **`0xD6`** + 8-bit additive checksum
+
+**Primary frame (locked vector):**
 
 `ac4200260005f6df81097465737420666f6f6400006405000013880100145002001518040020d6a4`
 
-- `foodId` = 390879 (`0x0005f6df`)
-- name = `test food`, weight = 100, magnification = 5
-- facts (u24 / compact): type0=5000, type1=5200, type2=5400, type4=32 (2-byte value)
+| Field | Value |
+| --- | --- |
+| foodId | 390879 (`0x0005F6DF`) |
+| name | `test food` |
+| weight | 100 g |
+| magnification | 5 |
+| facts (wire / float) | type0=5000/50.0, type1=5200/52.0, type2=5400/54.0, type4=32/0.32 |
+
+**Split continuation (short chunk, same cmd):**
+
+`ac42002601d0050015e0d6c7` — repeats total length `0x0026`, chunk index `0x01`, then
+tail bytes. On the **primary** (unsplit) frame, `length = len(payload) + 2`.
 
 Long payloads use **splitData** (multiple D6 frames). Icon bytes may also use FFB4
 file transfer — **not implemented** (icon sent inline only).
@@ -88,4 +98,5 @@ VitaminC, Calcium, Iron, Reserved.
 
 - **FFB4** icon file upload path.
 - Delete payload confirmation on live HCI.
+- Meaning of ctrl byte **`0x81`** (required; do not omit when encoding).
 - D7 indexed layout assumed (`foodIndex` before length block); not yet captured on HCI.
