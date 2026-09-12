@@ -36,14 +36,30 @@ def test_parse_fun_info_voice_capability_bits() -> None:
     assert capabilities.supports(DeviceFunction.VOICE_ASSISTANT)
 
 
-def test_parse_food_info_stub() -> None:
-    payload = bytes([0xAF, 0x01, 0x2C, 0x10, 0x20, 0x30])
+def test_parse_food_info_wide_layout() -> None:
+    payload = bytes([0xAF, 0x01, 0x2C, 0x00, 0x10, 0x20, 0x30])
     food = parse_food_info(payload)
     assert food.food_id == 0x012C
-    assert food.nutrition_payload == b"\x10\x20\x30"
+    assert food.food_index == 0x0010
+    assert food.foodId == food.food_id
+    assert food.foodIndex == food.food_index
+    assert food.extra == b"\x20\x30"
     assert food.raw_payload == payload
+
+
+def test_parse_food_info_compact_layout() -> None:
+    payload = bytes([0xAF, 0x00, 0x7B, 0x10])
+    food = parse_food_info(payload)
+    assert food.food_id == 0x007B
+    assert food.food_index == 0x10
+    assert food.extra == b""
 
 
 def test_parse_food_info_requires_af_type() -> None:
     with pytest.raises(ProtocolError, match="expected notify type"):
         parse_food_info(b"\xA6\x00\x00")
+
+
+def test_parse_food_info_requires_food_index_byte() -> None:
+    with pytest.raises(ProtocolError, match="too short for foodIndex"):
+        parse_food_info(b"\xAF\x01\x2C")

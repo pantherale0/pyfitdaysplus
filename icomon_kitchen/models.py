@@ -90,16 +90,27 @@ class DeviceCapabilities:
 @dataclass(frozen=True, slots=True)
 class FoodInfo:
     """
-    Food/nutrition payload from on-device voice ASR (``ICFoodInfo``, notify 0xAF).
+    Food selection from on-device voice ASR (``ICFoodInfo``, notify ``0xAF``).
 
-    Recognition runs on the scale microphone; Fitdays+ receives structured food
-    data over BLE. This v1 parser exposes a best-effort ``food_id`` plus the
-    raw tail for forward-compatible decoding.
+    The scale runs offline recognition (wake **"Hello Vita"**); the client only
+    receives ``foodId`` and ``foodIndex`` over BLE — never audio. Trailing
+    ``extra`` bytes may hold nutrition data (layout TODO).
     """
 
-    food_id: int | None
+    food_id: int
+    food_index: int
+    extra: bytes
     raw_payload: bytes
-    nutrition_payload: bytes
+
+    @property
+    def foodId(self) -> int:
+        """SDK-style alias for :attr:`food_id`."""
+        return self.food_id
+
+    @property
+    def foodIndex(self) -> int:
+        """SDK-style alias for :attr:`food_index`."""
+        return self.food_index
 
 
 @dataclass(frozen=True, slots=True)

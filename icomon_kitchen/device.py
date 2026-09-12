@@ -27,7 +27,7 @@ from .protocol.constants import (
 )
 from .protocol.notify import parse_food_info, parse_fun_info, parse_weight_notification
 
-FoodInfoHandler = Callable[[FoodInfo], None]
+FoodSelectionHandler = Callable[[FoodInfo], None]
 CapabilitiesHandler = Callable[[DeviceCapabilities], None]
 
 
@@ -41,8 +41,9 @@ class KitchenScaleDevice:
         name: str,
         config: Config | None = None,
         transport: BleTransport | None = None,
-        on_food_info: FoodInfoHandler | None = None,
+        on_food_selection: FoodSelectionHandler | None = None,
         on_capabilities: CapabilitiesHandler | None = None,
+        on_food_info: FoodSelectionHandler | None = None,
     ) -> None:
         self._config = config or Config(address=address, ble_name=name)
         self._transport = transport or BleTransport(address)
@@ -50,8 +51,8 @@ class KitchenScaleDevice:
         self._capabilities: DeviceCapabilities | None = None
         self._notify_task: asyncio.Task[None] | None = None
         self._readings: asyncio.Queue[WeightReading] = asyncio.Queue()
-        self._food_infos: asyncio.Queue[FoodInfo] = asyncio.Queue()
-        self._on_food_info = on_food_info
+        self._food_selections: asyncio.Queue[FoodInfo] = asyncio.Queue()
+        self._on_food_selection = on_food_selection or on_food_info
         self._on_capabilities = on_capabilities
         self.info = ScaleInfo(
             model=self._config.model,
@@ -111,9 +112,13 @@ class KitchenScaleDevice:
         """Wait for the next live weight notification."""
         return await self._readings.get()
 
+    async def read_food_selection(self) -> FoodInfo:
+        """Wait for the next on-device voice food selection (``ICFoodInfo`` / 0xAF)."""
+        return await self._food_selections.get()
+
     async def read_food_info(self) -> FoodInfo:
-        """Wait for the next ``ICFoodInfo`` (0xAF) notify from voice recognition."""
-        return await self._food_infos.get()
+        """Alias for :meth:`read_food_selection`."""
+        return await self.read_food_selection()
 
     @property
     def weight(self) -> WeightAccessor:
@@ -125,14 +130,26 @@ class KitchenScaleDevice:
         while self.connected:
             yield await self.read_weight()
 
-    async def food_infos(self) -> AsyncIterator[FoodInfo]:
-        """Iterate food-info notifications from on-device voice recognition."""
+    async def food_selections(self) -> AsyncIterator[FoodInfo]:
+        """Iterate voice-selected foods reported by the scale over BLE."""
         while self.connected:
-            yield await self.read_food_info()
+            yield await self.read_food_selection()
 
-    def set_food_info_handler(self, handler: FoodInfoHandler | None) -> None:
-        """Register a callback for ``ICFoodInfo`` (0xAF) notifications."""
-        self._on_food_info = handler
+    async def food_infos(self) -> AsyncIterator[FoodInfo]:
+        """Alias for :meth:`food_selections`."""
+        async for food in self.food_selections():
+            yield food
+
+    def set_food_selection_handler(
+        self,
+        handler: FoodSelectionHandler | None,
+    ) -> None:
+        """Register a callback for voice food selections (``ICFoodInfo`` / 0xAF)."""
+        self._on_food_selection = handler
+
+    def set_food_info_handler(self, handler: FoodSelectionHandler | None) -> None:
+        """Alias for :meth:`set_food_selection_handler`."""
+        self.set_food_selection_handler(handler)
 
     def set_capabilities_handler(self, handler: CapabilitiesHandler | None) -> None:
         """Register a callback for ``funInfo`` (0xA0) capability notifications."""
@@ -186,9 +203,9 @@ class KitchenScaleDevice:
             food = parse_food_info(payload)
         except ProtocolError:
             return
-        await self._food_infos.put(food)
-        if self._on_food_info is not None:
-            self._on_food_info(food)
+        await self._food_selections.put(food)
+        if self._on_food_selection is not None:
+            self._on_food_selection(food)
 
     def _handle_capabilities(self, payload: bytes) -> None:
         try:

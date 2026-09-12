@@ -20,9 +20,15 @@ GATT service `FFB0` with write `FFB1`, notify `FFB2`, file write `FFB4`, and DIS
 
 ## v1 scope
 
-This release focuses on **weight, tare, unit**, and **General/V2 framing**. Voice recognition runs **on the scale microphone** (offline ASR); Fitdays+ receives structured food/nutrition over BLE — there is **no phone mic** and **no PCM/audio streaming** over GATT in v1.
+This release focuses on **weight, tare, unit**, **General/V2 framing**, and
+**decoding voice food selections** from notify **`0xAF`** (`ICFoodInfo` with
+`foodId` + `foodIndex`). Voice recognition runs **on the scale microphone**
+(offline ASR, wake **“Hello Vita”**, English, ~500 foods); the client only
+receives food IDs over BLE — **no phone mic** and **no PCM/audio streaming**
+over GATT.
 
-Optional hooks parse notify types **`0xA0` (`funInfo`)** for capability bits and **`0xAF` (`ICFoodInfo`)** after on-device voice recognition. Wake-word handling and audio transport are **not implemented** without clear wire evidence.
+Optional hooks also parse **`0xA0` (`funInfo`)** capability bits. Wake-word
+triggering and audio transport are **not implemented**.
 
 ## Install
 
@@ -68,33 +74,47 @@ uv run python examples/read_weight.py --name MY_SCALE
 - `async for reading in device.weights(): ...`
 - `await device.tare()`
 - `await device.set_unit(Unit.G)` (also `ML`, `LB`, `OZ`, …)
-- Optional voice/food hooks (stubs): `await device.read_food_info()`, `device.capabilities`, `parse_fun_info` / `parse_food_info`
+- `await device.read_food_selection()` / `async for food in device.food_selections():`
+- `device.set_food_selection_handler(callback)` for voice ASR results (`foodId`, `foodIndex`)
+- `device.capabilities` / `parse_fun_info` for optional voice capability bits
 - Injectable BLE backend via `KitchenScaleClient(backend=...)` for tests
 
 No raw UUIDs or wire command bytes are required for normal kitchen-scale use.
 
-### On-device voice (Phase 2 hooks)
+### On-device voice food selection
 
-The **KG2458ULB-D** includes a microphone for offline AI food recognition (wake: **`Hello Vita`**, English catalog ~500 foods). Recognition executes on the scale; the app receives **`ICFoodInfo`** payloads on notify **`0xAF`**. Capability bits such as **`ICDeviceFunctionVoiceAssistant`** and **`ICDeviceFunctionVoiceLanguage`** may appear in **`funInfo`** (`0xA0`).
+The **KG2458ULB-D** microphone runs offline AI food recognition locally. Say
+**“Hello Vita”** on the scale; when recognition succeeds, Fitdays+ receives an
+**`ICFoodInfo`** notify (**`0xAF` / 175**) with **`foodId`** and **`foodIndex`**
+— not audio.
+
+Provisional wire layout (see `icomon_kitchen/protocol/food_info.py`):
+
+| Offset | Field | Type |
+| --- | --- | --- |
+| 0 | notify type | `0xAF` |
+| 1–2 | `foodId` | u16 BE |
+| 3–4 | `foodIndex` | u16 BE when `len >= 5` |
+| 3 | `foodIndex` | u8 when `len == 4` |
+| tail | nutrition / metadata | **TODO** — exposed as `FoodInfo.extra` |
 
 ```python
-from icomon_kitchen import DeviceFunction, KitchenScaleClient
+from icomon_kitchen import KitchenScaleClient
 
 client = KitchenScaleClient()
 device = await client.scan_for_device(name="MY_SCALE")
 
-def on_capabilities(caps):
-    if caps.voice_assistant:
-        print("Scale reports on-device voice ASR")
+def on_food(food):
+    print(food.food_id, food.food_index)
 
-device.set_capabilities_handler(on_capabilities)
+device.set_food_selection_handler(on_food)
 
 async with device:
-    food = await device.read_food_info()  # after user speaks on the scale
-    print(food.food_id, food.nutrition_payload)
+    async for food in device.food_selections():
+        print(f"Selected food {food.food_id} index {food.food_index}")
 ```
 
-We do **not** stream audio or trigger **“Hello Vita”** over BLE in this version.
+We do **not** stream audio or inject the **“Hello Vita”** wake phrase over BLE.
 
 ## Protocol notes
 
@@ -110,7 +130,7 @@ Verified TX vectors for `device_type=0x42`:
 
 Live weight arrives on notify type **`0xA6`** (`ICKitchenScaleData`). The Fitdays app exposes weight field `b` in **milligrams** (163000 → 163.0 g).
 
-Voice-derived food uses notify **`0xAF`** (`ICFoodInfo`). Device functions (including voice assistant/language) may be advertised in **`0xA0`** (`funInfo`); bit positions in this library are provisional.
+Voice-derived food uses notify **`0xAF`** (`ICFoodInfo`: **`foodId`**, **`foodIndex`**, optional tail bytes). Device functions (including voice assistant/language) may be advertised in **`0xA0`** (`funInfo`); bit positions are provisional.
 
 ## Fitdays cloud
 
@@ -119,7 +139,8 @@ HTTP/cloud sync is **not implemented**. `icomon_kitchen.cloud.FitdaysCloudClient
 ## Known unknowns
 
 - Full **`0xA6`** notify field map (stable/unit offsets are best-effort)
-- Full **`0xAF` / `ICFoodInfo`** layout (v1 exposes provisional `food_id` + raw tail)
+- Full **`0xAF`** tail / nutrition field map (`FoodInfo.extra` is raw-only today)
+- Exact **`foodIndex`** width on all firmware builds (u8 compact vs u16 wide)
 - Exact **`funInfo`** bit map for `ICDeviceFunctionVoiceAssistant` / `ICDeviceFunctionVoiceLanguage`
 - Whether voice language selection has a documented BLE setting command
 - No wire evidence for **“Hello Vita”** wake triggering or **audio/PCM** streaming over GATT
