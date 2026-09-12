@@ -15,7 +15,13 @@ DIS_SERVICE_UUID = UUID("0000180a-0000-1000-8000-00805f9b34fb")
 
 DEFAULT_BLE_NAME = "MY_SCALE"
 DEFAULT_MODEL = "KG2458ULB-D"
-DEFAULT_MTU = 20
+DEFAULT_MTU = 512  # splitData threshold for long D6/D7 payloads (not BLE ATT size)
+
+# Live HCI D6: splitData marker immediately before name_len (214 / D6, 215 / D7).
+COMMON_FOOD_SPLIT_FLAG = 0x81
+
+# Verified on live D6 capture: float nutrition values use round(value * 100) → u24.
+DEFAULT_NUTRITION_SCALE = 100.0
 
 # Java command ids mapped to trailing wire bytes for General/V2 frames.
 CMD_WIFI_CONFIG = 185

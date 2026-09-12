@@ -155,8 +155,7 @@ async with device:
     await device.set_nutrition(
         42,
         [NutritionFact(NutritionFactType.CALORIE, 150.0)],
-        scale=1.0,  # optional; default is identity round(value)
-    )
+    )  # default scale ×100 → wire 15000; pass scale=1.0 for raw integers
     await device.set_common_food(food)
     await device.set_common_food_indexed(3, food)
     await device.delete_common_foods([FoodReference(food_id=42, food_index=3)])
@@ -164,10 +163,9 @@ async with device:
 
 **Provisional / TODO**
 
-- **3-byte nutrition value scale** is unverified; use `encode_nutrition_value_u24`
-  with pre-scaled integers or pass an explicit `scale=` until HCI confirms mapping.
 - **Delete payload** layout (`count | foodId | foodIndex`) is provisional.
 - **FFB4** icon file upload remains stubbed (inline `icon` bytes only).
+- **D7** indexed prefix order assumed from native notes; not yet verified on HCI.
 
 ## Protocol notes
 
@@ -198,7 +196,7 @@ HTTP/cloud sync is **not implemented**. `icomon_kitchen.cloud.FitdaysCloudClient
 - Exact **`funInfo`** bit map for `ICDeviceFunctionVoiceAssistant` / `ICDeviceFunctionVoiceLanguage`
 - Whether voice language selection has a documented BLE setting command
 - No wire evidence for **“Hello Vita”** wake triggering or **audio/PCM** streaming over GATT
-- Nutrition commands encode **3-byte u24 values**; float scale is **TODO** (see `docs/kitchen_ble_framing.md`)
+- Nutrition u24 values default to **×100** scale (live D6 verified); override with `scale=`
 - Delete-common-food wire layout is **provisional**; protocol 113 prefers cmd **220 / DC**
 - **FFB4** icon file transfer is not implemented (inline icon bytes in D6/D7 only)
 - Legacy protocols **110/111** are not wired yet (stubs only via shared models)

@@ -13,6 +13,8 @@ from .constants import (
     CMD_COMMON_FOOD_INDEXED,
     CMD_DELETE_COMMON_FOOD,
     CMD_SET_NUTRITION,
+    COMMON_FOOD_SPLIT_FLAG,
+    DEFAULT_NUTRITION_SCALE,
     DEVICE_TYPE_KG2458,
     NOTIFY_FOOD_INFO,
     NOTIFY_FUN_INFO,
@@ -41,6 +43,7 @@ from .notify import (
     parse_weight_notification,
 )
 from .nutrition import (
+    encode_nutrition_fact_loop,
     encode_nutrition_facts,
     encode_nutrition_value,
     encode_nutrition_value_u24,
@@ -53,6 +56,8 @@ __all__ = [
     "CMD_COMMON_FOOD_INDEXED",
     "CMD_DELETE_COMMON_FOOD",
     "CMD_SET_NUTRITION",
+    "COMMON_FOOD_SPLIT_FLAG",
+    "DEFAULT_NUTRITION_SCALE",
     "DEVICE_TYPE_KG2458",
     "NOTIFY_FOOD_INFO",
     "NOTIFY_FUN_INFO",
@@ -72,6 +77,7 @@ __all__ = [
     "checksum",
     "encode_file_frame",
     "encode_frame",
+    "encode_nutrition_fact_loop",
     "encode_nutrition_facts",
     "encode_nutrition_value",
     "encode_nutrition_value_u24",

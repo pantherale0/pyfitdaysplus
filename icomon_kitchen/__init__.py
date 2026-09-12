@@ -26,6 +26,7 @@ from .models import (
     Unit,
     WeightReading,
 )
+from .protocol.constants import DEFAULT_NUTRITION_SCALE
 from .protocol.food_write import (
     build_delete_common_foods_frame,
     build_set_common_food_frames,
@@ -37,6 +38,7 @@ from .protocol.nutrition import encode_nutrition_facts, encode_nutrition_value_u
 
 __all__ = [
     "COMM_PROTOCOL",
+    "DEFAULT_NUTRITION_SCALE",
     "VOICE_WAKE_PHRASE",
     "Client",
     "CommonFood",

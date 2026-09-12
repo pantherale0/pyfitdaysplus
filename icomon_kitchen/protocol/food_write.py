@@ -12,11 +12,12 @@ from .constants import (
     CMD_COMMON_FOOD_INDEXED,
     CMD_DELETE_COMMON_FOOD,
     CMD_SET_NUTRITION,
+    COMMON_FOOD_SPLIT_FLAG,
     DEFAULT_MTU,
     DEVICE_TYPE_KG2458,
 )
 from .framing import encode_frame, split_frames
-from .nutrition import encode_nutrition_facts
+from .nutrition import encode_nutrition_fact_loop, encode_nutrition_facts
 
 
 def _write_int_be(value: int) -> bytes:
@@ -38,6 +39,21 @@ def _write_length_prefixed(data: bytes, *, field: str) -> bytes:
         msg = f"{field} length must fit in one byte, got {len(data)}"
         raise ProtocolError(msg)
     return bytes([len(data), *data])
+
+
+def _write_common_food_length_block(body: bytes) -> bytes:
+    """
+    Prefix a D6/D7 inner block with u16 BE length.
+
+    Live HCI uses ``length = len(payload) + 2`` where ``payload`` is the full
+    inner bytes **including** this 2-byte length halfword (``0x0026`` for a
+    36-byte block).
+    """
+    payload = bytearray([0, 0])
+    payload.extend(body)
+    length_value = len(payload) + 2
+    payload[0:2] = length_value.to_bytes(2, "big")
+    return bytes(payload)
 
 
 def build_set_nutrition_payload(
@@ -75,24 +91,33 @@ def build_common_food_payload(
     """
     Build the inner payload for cmd **214 / D6** or **215 / D7**.
 
-    When ``food_index`` is set, prefix one byte (215 / D7 indexed variant).
+    Verified D6 layout (live HCI):
+
+    ``u16 len | foodId u32 | 0x81 | name | icon | weight u16 | mag u8 | facts…``
+
+    Facts omit a leading count byte. For **215 / D7**, ``food_index u8`` prefixes
+    the length block.
     """
     name_bytes = food.name.encode("utf-8")
+    inner = bytearray()
+    inner.extend(_write_int_be(food.food_id))
+    inner.append(COMMON_FOOD_SPLIT_FLAG)
+    inner.extend(_write_length_prefixed(name_bytes, field="name"))
+    inner.extend(_write_length_prefixed(food.icon, field="icon"))
+    inner.extend(_write_short_be(food.weight))
+    if not 0 <= food.magnification <= 0xFF:
+        msg = f"magnification must fit in one byte, got {food.magnification}"
+        raise ProtocolError(msg)
+    inner.append(food.magnification)
+    inner.extend(encode_nutrition_fact_loop(food.facts, scale=scale))
+
     body = bytearray()
     if food_index is not None:
         if not 0 <= food_index <= 0xFF:
             msg = f"food_index must fit in one byte, got {food_index}"
             raise ProtocolError(msg)
         body.append(food_index)
-    body.extend(_write_int_be(food.food_id))
-    body.extend(_write_length_prefixed(name_bytes, field="name"))
-    body.extend(_write_length_prefixed(food.icon, field="icon"))
-    body.extend(_write_short_be(food.weight))
-    if not 0 <= food.magnification <= 0xFF:
-        msg = f"magnification must fit in one byte, got {food.magnification}"
-        raise ProtocolError(msg)
-    body.append(food.magnification)
-    body.extend(encode_nutrition_facts(food.facts, scale=scale))
+    body.extend(_write_common_food_length_block(bytes(inner)))
     return bytes(body)
 
 
@@ -104,6 +129,9 @@ def encode_split_command_frames(
     mtu: int = DEFAULT_MTU,
 ) -> list[bytes]:
     """Split a long payload and wrap each chunk in a General/V2 frame."""
+    chunk_size = max(mtu - 7, 1)
+    if len(payload) <= chunk_size:
+        return [encode_frame(cmd, payload, device_type=device_type)]
     chunks = split_frames(payload, mtu=mtu)
     return [encode_frame(cmd, chunk, device_type=device_type) for chunk in chunks]
 
