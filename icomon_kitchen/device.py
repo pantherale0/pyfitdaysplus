@@ -6,9 +6,10 @@ import asyncio
 from collections.abc import AsyncIterator, Callable
 from types import TracebackType
 
-from ._weight_accessor import WeightAccessor
+from ._weight_accessor import CachedWeightAccessor, WeightAccessor
 from .ble.transport import BleTransport
 from .config import Config
+from .events import ListenerList
 from .exceptions import NotConnectedError, ProtocolError
 from .models import (
     CommonFood,
@@ -42,6 +43,8 @@ from .protocol.notify import (
 
 FoodSelectionHandler = Callable[[FoodInfoNotify], None]
 CapabilitiesHandler = Callable[[DeviceCapabilities], None]
+WeightHandler = Callable[[WeightReading], None]
+Unsubscribe = Callable[[], None]
 
 
 class KitchenScaleDevice:
@@ -57,16 +60,28 @@ class KitchenScaleDevice:
         on_food_selection: FoodSelectionHandler | None = None,
         on_capabilities: CapabilitiesHandler | None = None,
         on_food_info: FoodSelectionHandler | None = None,
+        on_weight: WeightHandler | None = None,
     ) -> None:
         self._config = config or Config(address=address, ble_name=name)
         self._transport = transport or BleTransport(address)
-        self._latest: WeightReading | None = None
+        self._latest_weight: WeightReading | None = None
+        self._latest_food_selection: FoodInfoNotify | None = None
         self._capabilities: DeviceCapabilities | None = None
         self._notify_task: asyncio.Task[None] | None = None
         self._readings: asyncio.Queue[WeightReading] = asyncio.Queue()
         self._food_selections: asyncio.Queue[FoodInfoNotify] = asyncio.Queue()
-        self._on_food_selection = on_food_selection or on_food_info
-        self._on_capabilities = on_capabilities
+        self._weight_listeners: ListenerList[WeightReading] = ListenerList()
+        self._food_selection_listeners: ListenerList[FoodInfoNotify] = ListenerList()
+        self._capabilities_listeners: ListenerList[DeviceCapabilities] = ListenerList()
+        self._cached_weight = CachedWeightAccessor(self)
+        if on_weight is not None:
+            self._weight_listeners.subscribe(on_weight)
+        if on_food_selection is not None:
+            self._food_selection_listeners.subscribe(on_food_selection)
+        elif on_food_info is not None:
+            self._food_selection_listeners.subscribe(on_food_info)
+        if on_capabilities is not None:
+            self._capabilities_listeners.subscribe(on_capabilities)
         self.info = ScaleInfo(
             model=self._config.model,
             ble_name=name,
@@ -82,8 +97,33 @@ class KitchenScaleDevice:
 
     @property
     def capabilities(self) -> DeviceCapabilities | None:
-        """Latest ``funInfo`` capabilities, when the scale sends them."""
+        """Latest cached ``funInfo`` capabilities, when the scale sends them."""
         return self._capabilities
+
+    @property
+    def latest_weight(self) -> WeightReading | None:
+        """Latest cached weight reading from notify ``0xA6``, updated on each event."""
+        return self._latest_weight
+
+    @property
+    def latest_food_selection(self) -> FoodInfoNotify | None:
+        """Latest cached ``ICFoodInfo`` notify (``0xAF``), if any."""
+        return self._latest_food_selection
+
+    @property
+    def cached_weight(self) -> CachedWeightAccessor:
+        """
+        Sync view of the weight cache.
+
+        Use ``device.cached_weight.grams`` from non-async code; returns ``None``
+        until the first weight notification arrives.
+        """
+        return self._cached_weight
+
+    @property
+    def weight(self) -> WeightAccessor:
+        """Awaitable latest reading: ``reading = await device.weight``."""
+        return WeightAccessor(self)
 
     async def connect(self) -> None:
         """Connect, subscribe to notifications, and send the app handshake."""
@@ -195,10 +235,46 @@ class KitchenScaleDevice:
         """Alias for :meth:`read_food_selection`."""
         return await self.read_food_selection()
 
-    @property
-    def weight(self) -> WeightAccessor:
-        """Awaitable latest reading: ``reading = await device.weight``."""
-        return WeightAccessor(self)
+    def subscribe_weight(self, handler: WeightHandler) -> Unsubscribe:
+        """Subscribe to live weight notifications; returns an unsubscribe callable."""
+        return self._weight_listeners.subscribe(handler)
+
+    def subscribe_food_selection(self, handler: FoodSelectionHandler) -> Unsubscribe:
+        """Subscribe to ``ICFoodInfo`` (``0xAF``) voice selection notifications."""
+        return self._food_selection_listeners.subscribe(handler)
+
+    def subscribe_capabilities(self, handler: CapabilitiesHandler) -> Unsubscribe:
+        """Subscribe to ``funInfo`` (``0xA0``) capability notifications."""
+        return self._capabilities_listeners.subscribe(handler)
+
+    def set_weight_handler(self, handler: WeightHandler | None) -> None:
+        """Replace weight subscribers with a single handler, or clear when ``None``."""
+        self._weight_listeners.clear()
+        if handler is not None:
+            self._weight_listeners.subscribe(handler)
+
+    def set_food_selection_handler(
+        self,
+        handler: FoodSelectionHandler | None,
+    ) -> None:
+        """
+        Replace food-selection subscribers with one handler.
+
+        Pass ``None`` to clear all subscribers.
+        """
+        self._food_selection_listeners.clear()
+        if handler is not None:
+            self._food_selection_listeners.subscribe(handler)
+
+    def set_food_info_handler(self, handler: FoodSelectionHandler | None) -> None:
+        """Alias for :meth:`set_food_selection_handler`."""
+        self.set_food_selection_handler(handler)
+
+    def set_capabilities_handler(self, handler: CapabilitiesHandler | None) -> None:
+        """Replace capability subscribers with one handler, or clear when ``None``."""
+        self._capabilities_listeners.clear()
+        if handler is not None:
+            self._capabilities_listeners.subscribe(handler)
 
     async def weights(self) -> AsyncIterator[WeightReading]:
         """Iterate live weight readings until disconnected."""
@@ -214,21 +290,6 @@ class KitchenScaleDevice:
         """Alias for :meth:`food_selections`."""
         async for notify in self.food_selections():
             yield notify
-
-    def set_food_selection_handler(
-        self,
-        handler: FoodSelectionHandler | None,
-    ) -> None:
-        """Register a callback for ``ICFoodInfo`` (``0xAF``) notifications."""
-        self._on_food_selection = handler
-
-    def set_food_info_handler(self, handler: FoodSelectionHandler | None) -> None:
-        """Alias for :meth:`set_food_selection_handler`."""
-        self.set_food_selection_handler(handler)
-
-    def set_capabilities_handler(self, handler: CapabilitiesHandler | None) -> None:
-        """Register a callback for ``funInfo`` (0xA0) capability notifications."""
-        self._on_capabilities = handler
 
     async def __aenter__(self) -> KitchenScaleDevice:
         await self.connect()
@@ -276,7 +337,8 @@ class KitchenScaleDevice:
             reading = parse_weight_notification(payload)
         except ProtocolError:
             return
-        self._latest = reading
+        self._latest_weight = reading
+        self._weight_listeners.emit(reading)
         await self._readings.put(reading)
 
     async def _handle_food_info(self, payload: bytes) -> None:
@@ -284,9 +346,9 @@ class KitchenScaleDevice:
             notify = parse_food_info_notify(payload)
         except ProtocolError:
             return
+        self._latest_food_selection = notify
+        self._food_selection_listeners.emit(notify)
         await self._food_selections.put(notify)
-        if self._on_food_selection is not None:
-            self._on_food_selection(notify)
 
     def _handle_capabilities(self, payload: bytes) -> None:
         try:
@@ -294,8 +356,7 @@ class KitchenScaleDevice:
         except ProtocolError:
             return
         self._capabilities = capabilities
-        if self._on_capabilities is not None:
-            self._on_capabilities(capabilities)
+        self._capabilities_listeners.emit(capabilities)
 
 
 def _protocol_for_device_type(device_type: int) -> ProtocolVersion:

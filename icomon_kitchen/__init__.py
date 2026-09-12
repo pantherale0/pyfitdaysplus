@@ -2,7 +2,8 @@
 
 from .client import Client, KitchenScaleClient
 from .config import COMM_PROTOCOL, Config
-from .device import KitchenScaleDevice
+from .device import KitchenScaleDevice, Unsubscribe
+from .events import ListenerList
 from .exceptions import (
     DeviceNotFoundError,
     IcomonKitchenError,
@@ -53,6 +54,7 @@ __all__ = [
     "IcomonKitchenError",
     "KitchenScaleClient",
     "KitchenScaleDevice",
+    "ListenerList",
     "NotConnectedError",
     "NutritionFact",
     "NutritionFactType",
@@ -61,6 +63,7 @@ __all__ = [
     "ScaleInfo",
     "ScannedDevice",
     "Unit",
+    "Unsubscribe",
     "UnsupportedProtocolError",
     "WeightReading",
     "__version__",

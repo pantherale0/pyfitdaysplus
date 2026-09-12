@@ -60,6 +60,24 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
+### Sync cache and event callbacks
+
+Notifications update an in-memory cache as they arrive. Sync code can read
+`device.cached_weight.grams` (or `device.latest_weight`) without `await`, and
+you can subscribe to live updates:
+
+```python
+def on_weight(reading):
+    print(f"{reading.grams:.1f} g, stable={reading.stable}")
+
+unsubscribe = device.subscribe_weight(on_weight)
+
+# From sync code (e.g. a UI timer or callback):
+grams = device.cached_weight.grams
+
+unsubscribe()  # stop receiving callbacks
+```
+
 Example script:
 
 ```bash
@@ -70,13 +88,16 @@ uv run python examples/read_weight.py --name MY_SCALE
 
 - `KitchenScaleClient.scan_for_device(name=..., address=...)`
 - `KitchenScaleDevice.connect()` / `disconnect()` / async context manager
-- `await device.weight` — latest live reading
+- `await device.weight` — latest live reading (uses cache when available)
+- `device.latest_weight` / `device.cached_weight.grams` — sync read from cache
+- `device.subscribe_weight(callback)` — event callbacks (returns unsubscribe)
 - `async for reading in device.weights(): ...`
 - `await device.tare()`
 - `await device.set_unit(Unit.G)` (also `ML`, `LB`, `OZ`, …)
 - `await device.read_food_selection()` → `FoodInfoNotify` with `raw_payload`
 - `async for notify in device.food_selections():` — decode `notify.foods` when wire map exists
 - `device.set_food_selection_handler(callback)` for voice ASR **`0xAF`** notifies
+- `device.subscribe_food_selection(callback)` / `subscribe_capabilities(callback)`
 - `await device.set_nutrition(food_id, facts)` — cmd **213 / D5**
 - `await device.set_common_food(food)` — cmd **214 / D6** (split when long)
 - `await device.set_common_food_indexed(food_index, food)` — cmd **215 / D7**
