@@ -11,8 +11,11 @@ from .ble.transport import BleTransport
 from .config import Config
 from .exceptions import NotConnectedError, ProtocolError
 from .models import (
+    CommonFood,
     DeviceCapabilities,
     FoodInfoNotify,
+    FoodReference,
+    NutritionFact,
     ProtocolVersion,
     ScaleInfo,
     Unit,
@@ -24,6 +27,12 @@ from .protocol.constants import (
     NOTIFY_FOOD_INFO,
     NOTIFY_FUN_INFO,
     NOTIFY_KITCHEN_SCALE_DATA,
+)
+from .protocol.food_write import (
+    build_delete_common_foods_frame,
+    build_set_common_food_frames,
+    build_set_common_food_indexed_frames,
+    build_set_nutrition_frame,
 )
 from .protocol.notify import (
     parse_food_info_notify,
@@ -112,6 +121,68 @@ class KitchenScaleDevice:
             build_setting_unit(unit, device_type=self._config.device_type)
         )
 
+    async def set_nutrition(
+        self,
+        food_id: int,
+        facts: list[NutritionFact],
+        *,
+        scale: float | None = None,
+    ) -> None:
+        """Send nutrition facts for ``food_id`` (cmd **213 / 0xD5**)."""
+        frame = build_set_nutrition_frame(
+            food_id,
+            facts,
+            device_type=self._config.device_type,
+            scale=scale,
+        )
+        await self._write_setting(frame)
+
+    async def set_common_food(
+        self,
+        food: CommonFood,
+        *,
+        scale: float | None = None,
+    ) -> None:
+        """Upload a custom food entry (cmd **214 / 0xD6**, split when long)."""
+        frames = build_set_common_food_frames(
+            food,
+            device_type=self._config.device_type,
+            mtu=self._config.mtu,
+            scale=scale,
+        )
+        await self._write_frames(frames)
+
+    async def set_common_food_indexed(
+        self,
+        food_index: int,
+        food: CommonFood,
+        *,
+        scale: float | None = None,
+    ) -> None:
+        """Upload an indexed custom food entry (cmd **215 / 0xD7**)."""
+        frames = build_set_common_food_indexed_frames(
+            food_index,
+            food,
+            device_type=self._config.device_type,
+            mtu=self._config.mtu,
+            scale=scale,
+        )
+        await self._write_frames(frames)
+
+    async def delete_common_foods(
+        self,
+        entries: list[FoodReference],
+        *,
+        use_alt_delete: bool = True,
+    ) -> None:
+        """Delete custom foods (cmd **220 / 0xDC** on protocol 113 by default)."""
+        frame = build_delete_common_foods_frame(
+            entries,
+            device_type=self._config.device_type,
+            use_alt_delete=use_alt_delete,
+        )
+        await self._write_setting(frame)
+
     async def read_weight(self) -> WeightReading:
         """Wait for the next live weight notification."""
         return await self._readings.get()
@@ -175,6 +246,12 @@ class KitchenScaleDevice:
         if not self.connected:
             raise NotConnectedError("connect before sending commands")
         await self._transport.write_command(frame)
+
+    async def _write_frames(self, frames: list[bytes]) -> None:
+        if not self.connected:
+            raise NotConnectedError("connect before sending commands")
+        for frame in frames:
+            await self._transport.write_command(frame)
 
     async def _consume_notifications(self) -> None:
         try:

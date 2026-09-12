@@ -20,12 +20,12 @@ GATT service `FFB0` with write `FFB1`, notify `FFB2`, file write `FFB4`, and DIS
 
 ## v1 scope
 
-This release focuses on **weight, tare, unit**, **General/V2 framing**, and
-**decoding voice food selections** from notify **`0xAF`** (`ICFoodInfo` with
-`foodId` + `foodIndex`). Voice recognition runs **on the scale microphone**
-(offline ASR, wake **“Hello Vita”**, English, ~500 foods); the client only
-receives food IDs over BLE — **no phone mic** and **no PCM/audio streaming**
-over GATT.
+This release focuses on **weight, tare, unit**, **General/V2 framing**,
+**decoding voice food selections** from notify **`0xAF`**, and **Phase 2v2
+stubs** for sending custom food + nutrition **to** the device. Voice recognition
+runs **on the scale microphone** (offline ASR, wake **“Hello Vita”**, English,
+~500 foods); the client only receives food IDs over BLE — **no phone mic** and
+**no PCM/audio streaming** over GATT.
 
 Optional hooks also parse **`0xA0` (`funInfo`)** capability bits. Wake-word
 triggering and audio transport are **not implemented**.
@@ -77,6 +77,11 @@ uv run python examples/read_weight.py --name MY_SCALE
 - `await device.read_food_selection()` → `FoodInfoNotify` with `raw_payload`
 - `async for notify in device.food_selections():` — decode `notify.foods` when wire map exists
 - `device.set_food_selection_handler(callback)` for voice ASR **`0xAF`** notifies
+- `await device.set_nutrition(food_id, facts)` — cmd **213 / D5**
+- `await device.set_common_food(food)` — cmd **214 / D6** (split when long)
+- `await device.set_common_food_indexed(food_index, food)` — cmd **215 / D7**
+- `await device.delete_common_foods(entries)` — cmd **220 / DC** on protocol 113
+- Low-level encode helpers: `build_set_nutrition_frame`, `encode_nutrition_value_u24`, …
 - `device.capabilities` / `parse_fun_info` for optional voice capability bits
 - Injectable BLE backend via `KitchenScaleClient(backend=...)` for tests
 
@@ -116,6 +121,54 @@ async with device:
 
 We do **not** stream audio or inject the **“Hello Vita”** wake phrase over BLE.
 
+### Writing custom food + nutrition (Phase 2v2)
+
+Send nutrition facts and custom food entries **to** the scale. Wire layouts follow
+Phase 1 native notes in [`docs/kitchen_ble_framing.md`](docs/kitchen_ble_framing.md).
+
+| Method | Cmd | Notes |
+| --- | --- | --- |
+| `set_nutrition(food_id, facts)` | 213 / D5 | `facts`: `NutritionFact(type, value)` |
+| `set_common_food(food)` | 214 / D6 | `CommonFood`; split frames when payload exceeds MTU |
+| `set_common_food_indexed(food_index, food)` | 215 / D7 | Same as D6 with leading `food_index` byte |
+| `delete_common_foods(entries)` | 220 / DC | Protocol 113 default; pass `use_alt_delete=False` for 216 / D8 |
+
+```python
+from icomon_kitchen import (
+    CommonFood,
+    FoodReference,
+    KitchenScaleClient,
+    NutritionFact,
+    NutritionFactType,
+)
+
+food = CommonFood(
+    food_id=42,
+    name="Oats",
+    icon=b"\x01\x02",  # inline bytes only; FFB4 file upload not implemented
+    weight=500,
+    magnification=1,
+    facts=(NutritionFact(NutritionFactType.PROTEIN, 12.0),),
+)
+
+async with device:
+    await device.set_nutrition(
+        42,
+        [NutritionFact(NutritionFactType.CALORIE, 150.0)],
+        scale=1.0,  # optional; default is identity round(value)
+    )
+    await device.set_common_food(food)
+    await device.set_common_food_indexed(3, food)
+    await device.delete_common_foods([FoodReference(food_id=42, food_index=3)])
+```
+
+**Provisional / TODO**
+
+- **3-byte nutrition value scale** is unverified; use `encode_nutrition_value_u24`
+  with pre-scaled integers or pass an explicit `scale=` until HCI confirms mapping.
+- **Delete payload** layout (`count | foodId | foodIndex`) is provisional.
+- **FFB4** icon file upload remains stubbed (inline `icon` bytes only).
+
 ## Protocol notes
 
 General/V2 frames use magic `0xAC`, `device_type`, payload, trailing command byte, and an **8-bit additive checksum** (not CRC16) over bytes from index 2 through `len-2`.
@@ -145,7 +198,9 @@ HTTP/cloud sync is **not implemented**. `icomon_kitchen.cloud.FitdaysCloudClient
 - Exact **`funInfo`** bit map for `ICDeviceFunctionVoiceAssistant` / `ICDeviceFunctionVoiceLanguage`
 - Whether voice language selection has a documented BLE setting command
 - No wire evidence for **“Hello Vita”** wake triggering or **audio/PCM** streaming over GATT
-- Nutrition commands use a **24-bit scale** not fully mapped here
+- Nutrition commands encode **3-byte u24 values**; float scale is **TODO** (see `docs/kitchen_ble_framing.md`)
+- Delete-common-food wire layout is **provisional**; protocol 113 prefers cmd **220 / DC**
+- **FFB4** icon file transfer is not implemented (inline icon bytes in D6/D7 only)
 - Legacy protocols **110/111** are not wired yet (stubs only via shared models)
 - BLE **advertisement manufacturer data** layout for model detection
 - Optional **`0xDB` user_info_rnis** payload details for firmware ≥ specific versions

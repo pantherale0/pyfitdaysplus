@@ -8,10 +8,24 @@ from .commands import (
     build_setting_weight_grams,
 )
 from .constants import (
+    CMD_ALT_DELETE,
+    CMD_COMMON_FOOD,
+    CMD_COMMON_FOOD_INDEXED,
+    CMD_DELETE_COMMON_FOOD,
+    CMD_SET_NUTRITION,
     DEVICE_TYPE_KG2458,
     NOTIFY_FOOD_INFO,
     NOTIFY_FUN_INFO,
     NOTIFY_KITCHEN_SCALE_DATA,
+)
+from .food_write import (
+    build_common_food_payload,
+    build_delete_common_foods_frame,
+    build_delete_common_foods_payload,
+    build_set_common_food_frames,
+    build_set_common_food_indexed_frames,
+    build_set_nutrition_frame,
+    build_set_nutrition_payload,
 )
 from .framing import (
     checksum,
@@ -26,20 +40,42 @@ from .notify import (
     parse_fun_info,
     parse_weight_notification,
 )
+from .nutrition import (
+    encode_nutrition_facts,
+    encode_nutrition_value,
+    encode_nutrition_value_u24,
+    nutrition_fact_type_from_ordinal,
+)
 
 __all__ = [
+    "CMD_ALT_DELETE",
+    "CMD_COMMON_FOOD",
+    "CMD_COMMON_FOOD_INDEXED",
+    "CMD_DELETE_COMMON_FOOD",
+    "CMD_SET_NUTRITION",
     "DEVICE_TYPE_KG2458",
     "NOTIFY_FOOD_INFO",
     "NOTIFY_FUN_INFO",
     "NOTIFY_KITCHEN_SCALE_DATA",
     "build_app_reply",
+    "build_common_food_payload",
+    "build_delete_common_foods_frame",
+    "build_delete_common_foods_payload",
     "build_read_history",
+    "build_set_common_food_frames",
+    "build_set_common_food_indexed_frames",
+    "build_set_nutrition_frame",
+    "build_set_nutrition_payload",
     "build_setting_tare",
     "build_setting_unit",
     "build_setting_weight_grams",
     "checksum",
     "encode_file_frame",
     "encode_frame",
+    "encode_nutrition_facts",
+    "encode_nutrition_value",
+    "encode_nutrition_value_u24",
+    "nutrition_fact_type_from_ordinal",
     "parse_food_info",
     "parse_food_info_notify",
     "parse_fun_info",

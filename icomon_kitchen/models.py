@@ -139,3 +139,53 @@ class ScaleInfo:
 
 
 SettingKind = Literal["tare", "power", "unit", "weight"]
+
+
+class NutritionFactType(IntEnum):
+    """``ICKitchenScaleNutritionFactType`` ordinals (0..15)."""
+
+    CALORIE = 0
+    TOTAL_CALORIE = 1
+    TOTAL_FAT = 2
+    SATURATED_FAT = 3
+    TRANS_FAT = 4
+    CHOLESTEROL = 5
+    SODIUM = 6
+    TOTAL_CARBOHYDRATE = 7
+    DIETARY_FIBER = 8
+    SUGAR = 9
+    PROTEIN = 10
+    VITAMIN_A = 11
+    VITAMIN_C = 12
+    CALCIUM = 13
+    IRON = 14
+    RESERVED = 15
+
+
+@dataclass(frozen=True, slots=True)
+class NutritionFact:
+    """One nutrition fact for ``set_nutrition`` / common-food writes."""
+
+    type: NutritionFactType
+    value: float
+
+
+@dataclass(frozen=True, slots=True)
+class CommonFood:
+    """Custom food payload for ``set_common_food`` / ``set_common_food_indexed``."""
+
+    food_id: int
+    name: str
+    icon: bytes = b""
+    weight: int = 0
+    magnification: int = 0
+    facts: tuple[NutritionFact, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class FoodReference:
+    """Target entry for ``delete_common_foods``."""
+
+    food_id: int
+    food_index: int
+
