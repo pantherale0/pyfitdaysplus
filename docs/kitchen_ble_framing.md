@@ -1,4 +1,4 @@
-# Kitchen BLE framing (Phase 1 native notes + round-2 live HCI)
+# Kitchen BLE framing (Phase 1 native notes + live HCI)
 
 General/V2 command frames: `AC | device_type | payload… | cmd | checksum`.
 
@@ -16,68 +16,70 @@ This document covers **writing custom food + nutrition to the scale** (app → d
 
 ## Nutrition value scale
 
-Round-2 D6 HCI confirms float values use **`round(value × 100)` → wire integer**
+Reassembled D6 HCI confirms float values use **`round(value × 100)` → u24 BE**
 (50 → 5000). Default: `DEFAULT_NUTRITION_SCALE = 100`; pass `scale=1.0` for raw
 integers.
+
+## splitData framing (D6 / D7)
+
+Each on-wire chunk:
+
+```
+AC | device_type 0x42 | total_len u16 BE | seq u8 | payload_slice | cmd | checksum
+```
+
+- `total_len` = full **reassembled logical payload** byte length (`0x0026` = 38 in
+  the locked capture)
+- `seq` = chunk index from 0
+- `payload_slice` bytes concatenate in sequence order to form the logical payload
+
+**Locked live pair (cmd `0xD6`):**
+
+```
+ac4200260005f6df81097465737420666f6f6400006405000013880100145002001518040020d6a4
+ac42002601d0050015e0d6c7
+```
+
+## Reassembled logical payload (D6)
+
+After concatenating payload slices (38 bytes in the locked capture):
+
+1. `foodId` u32 BE — **`0x05F6DF81`** (100065153). The former `0x81` “ctrl byte”
+   was the low byte of this id spanning a chunk boundary.
+2. `name_len` u8 + name UTF-8
+3. `icon_len` u8 + icon bytes
+4. `weight` u16 BE grams
+5. **`fact_count` u8** (5 in capture — not magnification)
+6. `count × (type u8 + value u24 BE)`
+
+Locked facts (wire type ordinals vs `supportDataTypes` may differ from enum names):
+
+| type | u24 | float (÷100) |
+| --- | --- | --- |
+| 0 | 5000 | 50 kcal |
+| 1 | 5200 | 52 fat |
+| 2 | 5400 | 54 carbs |
+| 4 | 8400 | 84 sodium |
+| 5 | 5600 | 56 protein |
 
 ## 213 / D5 — set nutrition
 
 ```
-WriteInt(foodId BE)          // u32 BE
+WriteInt(foodId BE)
 WriteByte(count)
 repeat count times:
-  WriteByte(type)            // ICKitchenScaleNutritionFactType ordinal 0..15
+  WriteByte(type)
   Write3ByteScaled(value)    // u24 BE, default scale ×100
 ```
 
-## 214 / D6 — common food (round-2 locked HCI)
-
-After `AC 42`:
-
-1. `u16 BE` length prefix — value **`len(payload) + 2`** (`0x0026` for a 36-byte payload)
-2. `foodId` u32 BE
-3. **ctrl byte `0x81`** — live-observed; required on wire (purpose unknown)
-4. `name_len` u8 + name UTF-8
-5. `icon_len` u8 + icon bytes
-6. `weight` u16 BE grams
-7. `magnification` u8 (capture used `0x05`; Java often sends 0/1)
-8. facts: repeated **`type u8` + `value u24 BE`** (no count byte). Values `> 0xFF`
-   use 3 bytes; values `<= 0xFF` omit one leading zero byte on wire (2 bytes).
-9. trailing cmd **`0xD6`** + 8-bit additive checksum
-
-**Primary frame (locked vector):**
-
-`ac4200260005f6df81097465737420666f6f6400006405000013880100145002001518040020d6a4`
-
-| Field | Value |
-| --- | --- |
-| foodId | 390879 (`0x0005F6DF`) |
-| name | `test food` |
-| weight | 100 g |
-| magnification | 5 |
-| facts (wire / float) | type0=5000/50.0, type1=5200/52.0, type2=5400/54.0, type4=32/0.32 |
-
-**Split continuation (short chunk, same cmd):**
-
-`ac42002601d0050015e0d6c7` — repeats total length `0x0026`, chunk index `0x01`, then
-tail bytes. On the **primary** (unsplit) frame, `length = len(payload) + 2`.
-
-Long payloads use **splitData** (multiple D6 frames). Icon bytes may also use FFB4
-file transfer — **not implemented** (icon sent inline only).
-
 ## 215 / D7 — indexed common food
 
-Same as 214, prefixed with:
-
-```
-WriteByte(foodIndex)
-```
-
-(the `foodIndex` byte precedes the length-prefixed block)
+Same reassembled body as D6, prefixed with `food_index u8` before splitData
+chunking.
 
 ## 216 / D8 or 220 / DC — delete common foods
 
-Layout **provisional** in this library:
+Layout **provisional**:
 
 ```
 WriteByte(count)
@@ -88,15 +90,8 @@ repeat count:
 
 Protocol 113 uses **220 / DC** by default.
 
-## Nutrition fact types (`ICKitchenScaleNutritionFactType`)
-
-Ordinals **0..15**: Calorie, TotalCalorie, TotalFat, SaturatedFat, TransFat,
-Cholesterol, Sodium, TotalCarbohydrate, DietaryFiber, Sugar, Protein, VitaminA,
-VitaminC, Calcium, Iron, Reserved.
-
 ## Provisional / TODO
 
 - **FFB4** icon file upload path.
 - Delete payload confirmation on live HCI.
-- Meaning of ctrl byte **`0x81`** (required; do not omit when encoding).
-- D7 indexed layout assumed (`foodIndex` before length block); not yet captured on HCI.
+- D7 indexed split capture not yet verified independently.

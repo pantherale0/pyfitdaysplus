@@ -178,7 +178,7 @@ class CommonFood:
     name: str
     icon: bytes = b""
     weight: int = 0
-    magnification: int = 0
+    magnification: int = 0  # not sent on D6/D7 wire; kept for app-side use only
     facts: tuple[NutritionFact, ...] = ()
 
 

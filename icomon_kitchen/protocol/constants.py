@@ -15,13 +15,13 @@ DIS_SERVICE_UUID = UUID("0000180a-0000-1000-8000-00805f9b34fb")
 
 DEFAULT_BLE_NAME = "MY_SCALE"
 DEFAULT_MODEL = "KG2458ULB-D"
-DEFAULT_MTU = 512  # splitData threshold for long D6/D7 payloads (not BLE ATT size)
+DEFAULT_MTU = 36  # max splitData frame body (live D6 capture); slice max = MTU - 3
 
-# Live HCI D6/D7: ctrl byte 0x81 immediately before name_len (required on wire).
-COMMON_FOOD_CTRL_BYTE = 0x81
-COMMON_FOOD_SPLIT_FLAG = COMMON_FOOD_CTRL_BYTE
+# splitData per-chunk header inside the frame body: total_len u16 + seq u8
+SPLIT_DATA_HEADER_LEN = 3
+SPLIT_DATA_FRAME_BODY_MAX = DEFAULT_MTU
 
-# Verified on live D6 capture: float nutrition values use round(value * 100) → u24.
+# Verified on live D6 capture: float nutrition values use round(value * 100) -> u24.
 DEFAULT_NUTRITION_SCALE = 100.0
 
 # Java command ids mapped to trailing wire bytes for General/V2 frames.

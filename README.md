@@ -129,8 +129,8 @@ Phase 1 native notes in [`docs/kitchen_ble_framing.md`](docs/kitchen_ble_framing
 | Method | Cmd | Notes |
 | --- | --- | --- |
 | `set_nutrition(food_id, facts)` | 213 / D5 | `facts`: `NutritionFact(type, value)` |
-| `set_common_food(food)` | 214 / D6 | `CommonFood`; split frames when payload exceeds MTU |
-| `set_common_food_indexed(food_index, food)` | 215 / D7 | Same as D6 with leading `food_index` byte |
+| `set_common_food(food)` | 214 / D6 | splitData chunks: `total_len \| seq \| slice` |
+| `set_common_food_indexed(food_index, food)` | 215 / D7 | `food_index` prefixes logical payload |
 | `delete_common_foods(entries)` | 220 / DC | Protocol 113 default; pass `use_alt_delete=False` for 216 / D8 |
 
 ```python
@@ -147,7 +147,6 @@ food = CommonFood(
     name="Oats",
     icon=b"\x01\x02",  # inline bytes only; FFB4 file upload not implemented
     weight=500,
-    magnification=1,
     facts=(NutritionFact(NutritionFactType.PROTEIN, 12.0),),
 )
 
@@ -165,7 +164,8 @@ async with device:
 
 - **Delete payload** layout (`count | foodId | foodIndex`) is provisional.
 - **FFB4** icon file upload remains stubbed (inline `icon` bytes only).
-- **D7** indexed prefix order assumed from native notes; not yet verified on HCI.
+- D6 reassembled layout: `foodId u32 | name | icon | weight u16 | fact_count | facts`
+- splitData per chunk: `total_len u16 | seq u8 | slice` (see `docs/kitchen_ble_framing.md`)
 
 ## Protocol notes
 

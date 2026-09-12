@@ -12,12 +12,13 @@ from .constants import (
     CMD_COMMON_FOOD_INDEXED,
     CMD_DELETE_COMMON_FOOD,
     CMD_SET_NUTRITION,
-    COMMON_FOOD_CTRL_BYTE,
     DEFAULT_MTU,
     DEVICE_TYPE_KG2458,
+    SPLIT_DATA_FRAME_BODY_MAX,
+    SPLIT_DATA_HEADER_LEN,
 )
-from .framing import encode_frame, split_frames
-from .nutrition import encode_nutrition_fact_loop, encode_nutrition_facts
+from .framing import encode_frame
+from .nutrition import encode_common_food_facts, encode_nutrition_facts
 
 
 def _write_int_be(value: int) -> bytes:
@@ -41,19 +42,9 @@ def _write_length_prefixed(data: bytes, *, field: str) -> bytes:
     return bytes([len(data), *data])
 
 
-def _write_common_food_length_block(body: bytes) -> bytes:
-    """
-    Prefix a D6/D7 inner block with u16 BE length.
-
-    Live HCI uses ``length = len(payload) + 2`` where ``payload`` is the full
-    inner bytes **including** this 2-byte length halfword (``0x0026`` for a
-    36-byte block).
-    """
-    payload = bytearray([0, 0])
-    payload.extend(body)
-    length_value = len(payload) + 2
-    payload[0:2] = length_value.to_bytes(2, "big")
-    return bytes(payload)
+def split_data_max_slice(*, frame_body_max: int = SPLIT_DATA_FRAME_BODY_MAX) -> int:
+    """Return the maximum payload slice bytes per splitData chunk."""
+    return max(frame_body_max - SPLIT_DATA_HEADER_LEN, 1)
 
 
 def build_set_nutrition_payload(
@@ -82,6 +73,26 @@ def build_set_nutrition_frame(
     return encode_frame(CMD_SET_NUTRITION, payload, device_type=device_type)
 
 
+def build_common_food_body(
+    food: CommonFood,
+    *,
+    scale: float | None = None,
+) -> bytes:
+    """
+    Build the reassembled D6 / D7 logical payload (before splitData framing).
+
+    Layout: ``foodId u32 | name | icon | weight u16 | fact_count u8 | facts…``
+    """
+    name_bytes = food.name.encode("utf-8")
+    body = bytearray()
+    body.extend(_write_int_be(food.food_id))
+    body.extend(_write_length_prefixed(name_bytes, field="name"))
+    body.extend(_write_length_prefixed(food.icon, field="icon"))
+    body.extend(_write_short_be(food.weight))
+    body.extend(encode_common_food_facts(food.facts, scale=scale))
+    return bytes(body)
+
+
 def build_common_food_payload(
     food: CommonFood,
     *,
@@ -89,51 +100,50 @@ def build_common_food_payload(
     scale: float | None = None,
 ) -> bytes:
     """
-    Build the inner payload for cmd **214 / D6** or **215 / D7**.
+    Build the full logical payload for **214 / D6** or **215 / D7**.
 
-    Verified D6 layout (round-2 live HCI):
-
-    ``u16 len | foodId u32 | ctrl 0x81 | name | icon | weight u16 | mag u8 | facts…``
-
-    Facts omit a leading count byte. For **215 / D7**, ``food_index u8`` prefixes
-    the length block.
+    For indexed writes, ``food_index u8`` prefixes the body (not split separately).
     """
-    name_bytes = food.name.encode("utf-8")
-    inner = bytearray()
-    inner.extend(_write_int_be(food.food_id))
-    inner.append(COMMON_FOOD_CTRL_BYTE)
-    inner.extend(_write_length_prefixed(name_bytes, field="name"))
-    inner.extend(_write_length_prefixed(food.icon, field="icon"))
-    inner.extend(_write_short_be(food.weight))
-    if not 0 <= food.magnification <= 0xFF:
-        msg = f"magnification must fit in one byte, got {food.magnification}"
+    body = build_common_food_body(food, scale=scale)
+    if food_index is None:
+        return body
+    if not 0 <= food_index <= 0xFF:
+        msg = f"food_index must fit in one byte, got {food_index}"
         raise ProtocolError(msg)
-    inner.append(food.magnification)
-    inner.extend(encode_nutrition_fact_loop(food.facts, scale=scale))
-
-    body = bytearray()
-    if food_index is not None:
-        if not 0 <= food_index <= 0xFF:
-            msg = f"food_index must fit in one byte, got {food_index}"
-            raise ProtocolError(msg)
-        body.append(food_index)
-    body.extend(_write_common_food_length_block(bytes(inner)))
-    return bytes(body)
+    return bytes([food_index, *body])
 
 
-def encode_split_command_frames(
+def encode_split_data_frames(
     cmd: int,
-    payload: bytes,
+    logical_payload: bytes,
     *,
     device_type: int = DEVICE_TYPE_KG2458,
-    mtu: int = DEFAULT_MTU,
+    frame_body_max: int = SPLIT_DATA_FRAME_BODY_MAX,
 ) -> list[bytes]:
-    """Split a long payload and wrap each chunk in a General/V2 frame."""
-    chunk_size = max(mtu - 7, 1)
-    if len(payload) <= chunk_size:
-        return [encode_frame(cmd, payload, device_type=device_type)]
-    chunks = split_frames(payload, mtu=mtu)
-    return [encode_frame(cmd, chunk, device_type=device_type) for chunk in chunks]
+    """
+    Wrap ``logical_payload`` in splitData frames.
+
+    Each frame body: ``total_len u16 BE | seq u8 | payload_slice`` where
+    ``total_len`` is the full reassembled logical payload length.
+    """
+    if len(logical_payload) > 0xFFFF:
+        msg = f"logical payload too long for u16 total_len: {len(logical_payload)}"
+        raise ProtocolError(msg)
+
+    max_slice = split_data_max_slice(frame_body_max=frame_body_max)
+    total_len = len(logical_payload)
+    slices = [
+        logical_payload[index : index + max_slice]
+        for index in range(0, len(logical_payload), max_slice)
+    ]
+    frames: list[bytes] = []
+    for sequence, slice_bytes in enumerate(slices):
+        if sequence > 0xFF:
+            msg = f"splitData sequence overflow at chunk {sequence}"
+            raise ProtocolError(msg)
+        chunk_payload = total_len.to_bytes(2, "big") + bytes([sequence, *slice_bytes])
+        frames.append(encode_frame(cmd, chunk_payload, device_type=device_type))
+    return frames
 
 
 def build_set_common_food_frames(
@@ -143,13 +153,13 @@ def build_set_common_food_frames(
     mtu: int = DEFAULT_MTU,
     scale: float | None = None,
 ) -> list[bytes]:
-    """Return framed **214 / D6** command(s), split when needed."""
-    payload = build_common_food_payload(food, scale=scale)
-    return encode_split_command_frames(
+    """Return framed **214 / D6** splitData command(s)."""
+    payload = build_common_food_body(food, scale=scale)
+    return encode_split_data_frames(
         CMD_COMMON_FOOD,
         payload,
         device_type=device_type,
-        mtu=mtu,
+        frame_body_max=mtu,
     )
 
 
@@ -161,13 +171,13 @@ def build_set_common_food_indexed_frames(
     mtu: int = DEFAULT_MTU,
     scale: float | None = None,
 ) -> list[bytes]:
-    """Return framed **215 / D7** command(s), split when needed."""
+    """Return framed **215 / D7** splitData command(s)."""
     payload = build_common_food_payload(food, food_index=food_index, scale=scale)
-    return encode_split_command_frames(
+    return encode_split_data_frames(
         CMD_COMMON_FOOD_INDEXED,
         payload,
         device_type=device_type,
-        mtu=mtu,
+        frame_body_max=mtu,
     )
 
 

@@ -24,27 +24,16 @@ def encode_nutrition_value(
     value: float,
     *,
     scale: float | None = None,
-    compact: bool = False,
 ) -> bytes:
     """
-    Encode a float nutrition reading to wire bytes.
+    Encode a float nutrition reading to 3-byte u24 BE.
 
     Default scale is :data:`~icomon_kitchen.protocol.constants.DEFAULT_NUTRITION_SCALE`
-    (**x100**, verified on live D6: 50 -> 5000). Pass ``scale=1.0`` for raw integers.
-
-    When ``compact`` is true (D6 / D7 common-food bodies), round-2 HCI encodes
-    scaled values ``<= 0xFF`` in **2 bytes** (u24 with leading zero byte omitted).
-    Values ``> 0xFF`` use **3-byte u24 BE**. Cmd **213 / D5** always uses fixed
-    3-byte slots (``compact=False``).
+    (**x100**, verified on live D6). Pass ``scale=1.0`` for raw integers.
     """
     multiplier = DEFAULT_NUTRITION_SCALE if scale is None else scale
     scaled = round(value * multiplier)
-    if not 0 <= scaled <= 0xFFFFFF:
-        msg = f"nutrition value must fit in 24 bits, got {scaled}"
-        raise ProtocolError(msg)
-    if compact and scaled <= 0xFF:
-        return scaled.to_bytes(2, "big")
-    return scaled.to_bytes(3, "big")
+    return encode_nutrition_value_u24(scaled)
 
 
 def encode_nutrition_facts(
@@ -59,21 +48,17 @@ def encode_nutrition_facts(
     body = bytearray([len(facts)])
     for fact in facts:
         body.append(int(fact.type))
-        body.extend(encode_nutrition_value(fact.value, scale=scale, compact=False))
+        body.extend(encode_nutrition_value(fact.value, scale=scale))
     return bytes(body)
 
 
-def encode_nutrition_fact_loop(
+def encode_common_food_facts(
     facts: tuple[NutritionFact, ...] | list[NutritionFact],
     *,
     scale: float | None = None,
 ) -> bytes:
-    """Return ``(type u8 + value u24)…`` without a leading count (D6 / D7 body)."""
-    body = bytearray()
-    for fact in facts:
-        body.append(int(fact.type))
-        body.extend(encode_nutrition_value(fact.value, scale=scale, compact=True))
-    return bytes(body)
+    """Return ``fact_count u8 + (type u8 + value u24)…`` for D6 / D7 bodies."""
+    return encode_nutrition_facts(facts, scale=scale)
 
 
 def nutrition_fact_type_from_ordinal(ordinal: int) -> NutritionFactType:

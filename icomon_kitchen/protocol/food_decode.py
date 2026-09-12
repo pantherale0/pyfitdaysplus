@@ -1,27 +1,26 @@
-"""Decode common-food write payloads (D6 / D7)."""
+"""Decode common-food write payloads (D6 / D7 splitData)."""
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 from ..exceptions import ProtocolError
 from ..models import CommonFood, NutritionFact
-from .constants import COMMON_FOOD_CTRL_BYTE, DEFAULT_NUTRITION_SCALE
+from .constants import DEFAULT_NUTRITION_SCALE, SPLIT_DATA_HEADER_LEN
 from .nutrition import nutrition_fact_type_from_ordinal
 
 
 @dataclass(frozen=True, slots=True)
 class ParsedCommonFood:
-    """Decoded fields from a D6 / D7 inner payload."""
+    """Decoded fields from a reassembled D6 / D7 logical payload."""
 
     food_id: int
     name: str
     icon: bytes
     weight: int
-    magnification: int
     facts: tuple[NutritionFact, ...]
     food_index: int | None = None
-    ctrl_byte: int = COMMON_FOOD_CTRL_BYTE
 
     def to_common_food(self) -> CommonFood:
         """Return a :class:`CommonFood` suitable for re-encoding."""
@@ -30,68 +29,73 @@ class ParsedCommonFood:
             name=self.name,
             icon=self.icon,
             weight=self.weight,
-            magnification=self.magnification,
             facts=self.facts,
         )
 
 
-def parse_common_food_payload(payload: bytes) -> ParsedCommonFood:
+def reassemble_split_data_frames(frames: Sequence[bytes]) -> bytes:
     """
-    Parse the inner D6 / D7 payload (after ``AC 42``, before cmd byte).
+    Concatenate splitData payload slices from ordered chunk frame bodies.
 
-    Layout matches round-2 live HCI (see ``docs/kitchen_ble_framing.md``).
+    Each frame body must be ``total_len u16 BE | seq u8 | slice`` (between
+    ``AC 42`` and the trailing cmd byte).
     """
-    if len(payload) < 8:
-        msg = f"common-food payload too short: {len(payload)} bytes"
+    if not frames:
+        msg = "at least one splitData frame is required"
         raise ProtocolError(msg)
 
-    if payload[6] == COMMON_FOOD_CTRL_BYTE:
-        length_value = int.from_bytes(payload[0:2], "big")
-        if length_value != len(payload) + 2:
+    total_len: int | None = None
+    slices: dict[int, bytes] = {}
+    for frame in frames:
+        if len(frame) < 6:
+            msg = f"splitData frame too short: {len(frame)} bytes"
+            raise ProtocolError(msg)
+        body = frame[2:-2]
+        if len(body) < SPLIT_DATA_HEADER_LEN:
+            msg = "splitData frame body missing header"
+            raise ProtocolError(msg)
+        frame_total = int.from_bytes(body[0:2], "big")
+        sequence = body[2]
+        slice_bytes = body[3:]
+        if total_len is None:
+            total_len = frame_total
+        elif frame_total != total_len:
             msg = (
-                f"length prefix 0x{length_value:04x} != len(payload)+2 "
-                f"(0x{len(payload) + 2:04x})"
+                f"splitData total_len mismatch: 0x{frame_total:04x} != "
+                f"0x{total_len:04x}"
             )
             raise ProtocolError(msg)
-        return _parse_common_food_body(payload[2:])
+        if sequence in slices:
+            msg = f"duplicate splitData sequence {sequence}"
+            raise ProtocolError(msg)
+        slices[sequence] = slice_bytes
 
-    food_index = payload[0]
-    length_value = int.from_bytes(payload[1:3], "big")
-    if length_value != len(payload) + 1:
+    if total_len is None:
+        msg = "splitData total_len missing"
+        raise ProtocolError(msg)
+
+    expected_sequences = range(len(slices))
+    if sorted(slices) != list(expected_sequences):
+        msg = f"splitData sequences not contiguous: {sorted(slices)}"
+        raise ProtocolError(msg)
+
+    reassembled = b"".join(slices[index] for index in expected_sequences)
+    if len(reassembled) != total_len:
         msg = (
-            f"indexed length 0x{length_value:04x} != len(payload)+1 "
-            f"(0x{len(payload) + 1:04x})"
+            f"splitData reassembly length {len(reassembled)} != total_len {total_len}"
         )
         raise ProtocolError(msg)
-    parsed = _parse_common_food_body(payload[3:])
-    return ParsedCommonFood(
-        food_id=parsed.food_id,
-        name=parsed.name,
-        icon=parsed.icon,
-        weight=parsed.weight,
-        magnification=parsed.magnification,
-        facts=parsed.facts,
-        food_index=food_index,
-        ctrl_byte=parsed.ctrl_byte,
-    )
+    return reassembled
 
 
-def _parse_common_food_body(body: bytes) -> ParsedCommonFood:
+def parse_common_food_body(body: bytes) -> ParsedCommonFood:
+    """Parse one reassembled D6 logical payload."""
     offset = 0
     if offset + 4 > len(body):
         msg = "common-food body truncated before foodId"
         raise ProtocolError(msg)
     food_id = int.from_bytes(body[offset : offset + 4], "big")
     offset += 4
-
-    ctrl_byte = body[offset]
-    if ctrl_byte != COMMON_FOOD_CTRL_BYTE:
-        msg = (
-            f"expected ctrl byte 0x{COMMON_FOOD_CTRL_BYTE:02x}, "
-            f"got 0x{ctrl_byte:02x}"
-        )
-        raise ProtocolError(msg)
-    offset += 1
 
     if offset >= len(body):
         msg = "common-food body truncated before name_len"
@@ -121,44 +125,56 @@ def _parse_common_food_body(body: bytes) -> ParsedCommonFood:
     weight = int.from_bytes(body[offset : offset + 2], "big")
     offset += 2
 
-    if offset >= len(body):
-        msg = "common-food body truncated before magnification"
-        raise ProtocolError(msg)
-    magnification = body[offset]
-    offset += 1
-
-    facts = _parse_fact_loop(body[offset:])
+    facts = _parse_counted_facts(body[offset:])
     return ParsedCommonFood(
         food_id=food_id,
         name=name,
         icon=icon,
         weight=weight,
-        magnification=magnification,
         facts=facts,
-        ctrl_byte=ctrl_byte,
     )
 
 
-def _parse_fact_loop(data: bytes) -> tuple[NutritionFact, ...]:
+def parse_indexed_common_food_payload(payload: bytes) -> ParsedCommonFood:
+    """Parse a reassembled **215 / D7** payload prefixed with ``food_index u8``."""
+    if len(payload) < 2:
+        msg = f"indexed common-food payload too short: {len(payload)} bytes"
+        raise ProtocolError(msg)
+    food_index = payload[0]
+    parsed = parse_common_food_body(payload[1:])
+    return ParsedCommonFood(
+        food_id=parsed.food_id,
+        name=parsed.name,
+        icon=parsed.icon,
+        weight=parsed.weight,
+        facts=parsed.facts,
+        food_index=food_index,
+    )
+
+
+def parse_common_food_payload(payload: bytes) -> ParsedCommonFood:
+    """Parse a reassembled D6 logical payload."""
+    return parse_common_food_body(payload)
+
+
+def _parse_counted_facts(data: bytes) -> tuple[NutritionFact, ...]:
+    if not data:
+        msg = "common-food body truncated before fact_count"
+        raise ProtocolError(msg)
+    count = data[0]
+    offset = 1
     facts: list[NutritionFact] = []
-    offset = 0
-    while offset < len(data):
-        if offset + 3 > len(data):
+    for _ in range(count):
+        if offset + 4 > len(data):
             msg = f"truncated nutrition fact at offset {offset}"
             raise ProtocolError(msg)
         fact_type = nutrition_fact_type_from_ordinal(data[offset])
-        offset += 1
-        remaining = len(data) - offset
-        if remaining == 2:
-            wire_value = int.from_bytes(data[offset : offset + 2], "big")
-            offset += 2
-        elif remaining >= 3:
-            wire_value = int.from_bytes(data[offset : offset + 3], "big")
-            offset += 3
-        else:
-            msg = f"incomplete nutrition value at offset {offset}"
-            raise ProtocolError(msg)
+        wire_value = int.from_bytes(data[offset + 1 : offset + 4], "big")
+        offset += 4
         facts.append(
             NutritionFact(fact_type, wire_value / DEFAULT_NUTRITION_SCALE)
         )
+    if offset != len(data):
+        msg = f"unexpected trailing bytes after facts: {data[offset:].hex()}"
+        raise ProtocolError(msg)
     return tuple(facts)
