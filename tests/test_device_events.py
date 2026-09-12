@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 import pytest
 
@@ -102,3 +103,14 @@ async def test_capabilities_cache_and_subscribe() -> None:
 def test_parse_weight_fixture_used_in_cache_test() -> None:
     reading = parse_weight_notification(_WEIGHT_PAYLOAD)
     assert reading.grams == pytest.approx(163.0)
+
+
+@pytest.mark.asyncio
+async def test_unhandled_notify_is_logged(caplog: pytest.LogCaptureFixture) -> None:
+    device = KitchenScaleDevice("78:66:A5:D3:47:1E", name="MY_SCALE")
+    payload = bytes([0xAC, 0x42, 0x00])
+    with caplog.at_level(logging.INFO, logger="icomon_kitchen.device"):
+        await device._dispatch_notification(payload)
+
+    assert "unhandled notify type=0xac" in caplog.text
+    assert payload.hex() in caplog.text

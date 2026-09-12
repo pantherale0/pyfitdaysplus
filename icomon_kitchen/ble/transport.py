@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import AsyncIterator, Iterable
 from typing import TYPE_CHECKING
 from uuid import UUID
@@ -23,6 +24,8 @@ from .backend import BleBackend, DefaultBleBackend
 
 if TYPE_CHECKING:
     from bleak import BleakClient
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class BleTransport:
@@ -50,6 +53,8 @@ class BleTransport:
         self._write_uuid_str = str(write_uuid)
         self._notify_uuid_str = str(notify_uuid)
         self._file_write_uuid_str: str | None = str(file_write_uuid)
+        self._write_with_response = False
+        self._file_write_with_response = False
 
     @property
     def connected(self) -> bool:
@@ -62,12 +67,16 @@ class BleTransport:
             return
         client = self._backend.client(self.address)
         try:
+            _LOGGER.info("connecting to %s", self.address)
             await client.connect()
             self._client = client
             await self._discover_characteristics()
+            _LOGGER.info("enabling notifications on %s", self._notify_uuid_str)
             await client.start_notify(self._notify_uuid_str, self._on_notify)
             self._notify_started = True
+            _LOGGER.info("GATT session ready on %s", self.address)
         except BaseException:
+            _LOGGER.debug("connect failed for %s", self.address, exc_info=True)
             await self.disconnect()
             raise
 
@@ -79,6 +88,7 @@ class BleTransport:
         self._notify_started = False
         if client is None:
             return
+        _LOGGER.info("disconnecting from %s", self.address)
         try:
             if notify_started and client.is_connected:
                 await client.stop_notify(self._notify_uuid_str)
@@ -89,7 +99,16 @@ class BleTransport:
     async def write_command(self, frame: bytes) -> None:
         """Send a framed command on FFB1."""
         client = self._require_client()
-        await client.write_gatt_char(self._write_uuid_str, frame, response=True)
+        _LOGGER.debug(
+            "write FFB1 response=%s payload=%s",
+            self._write_with_response,
+            frame.hex(),
+        )
+        await client.write_gatt_char(
+            self._write_uuid_str,
+            frame,
+            response=self._write_with_response,
+        )
 
     async def write_file(self, data: bytes) -> None:
         """Send a raw file chunk on FFB4."""
@@ -97,10 +116,16 @@ class BleTransport:
             msg = "FFB4 file-write characteristic is not present on this scale"
             raise ProtocolError(msg)
         client = self._require_client()
+        payload = encode_file_frame(data)
+        _LOGGER.debug(
+            "write FFB4 response=%s payload=%s",
+            self._file_write_with_response,
+            payload.hex(),
+        )
         await client.write_gatt_char(
             self._file_write_uuid_str,
-            encode_file_frame(data),
-            response=True,
+            payload,
+            response=self._file_write_with_response,
         )
 
     async def notifications(self) -> AsyncIterator[bytes]:
@@ -113,11 +138,14 @@ class BleTransport:
         _characteristic: BleakGATTCharacteristic,
         data: bytearray,
     ) -> None:
-        self._notify_queue.put_nowait(bytes(data))
+        payload = bytes(data)
+        _LOGGER.debug("notify %s: %s", _characteristic.uuid, payload.hex())
+        self._notify_queue.put_nowait(payload)
 
     async def _discover_characteristics(self) -> None:
         client = self._require_client()
         services = client.services
+        _log_gatt_table(services)
         service = _find_service(services, self._service_uuid)
         if service is None:
             found = _format_uuids(svc.uuid for svc in services) or "none"
@@ -147,7 +175,27 @@ class BleTransport:
 
         self._write_uuid_str = write.uuid
         self._notify_uuid_str = notify.uuid
-        self._file_write_uuid_str = None if file_write is None else file_write.uuid
+        self._write_with_response = _att_write_response(write)
+        if file_write is None:
+            self._file_write_uuid_str = None
+            self._file_write_with_response = False
+            _LOGGER.info(
+                "FFB0 write=%s notify=%s file=absent write_with_response=%s",
+                write.uuid,
+                notify.uuid,
+                self._write_with_response,
+            )
+            return
+
+        self._file_write_uuid_str = file_write.uuid
+        self._file_write_with_response = _att_write_response(file_write)
+        _LOGGER.info(
+            "FFB0 write=%s notify=%s file=%s write_with_response=%s",
+            write.uuid,
+            notify.uuid,
+            file_write.uuid,
+            self._write_with_response,
+        )
 
     def _require_client(self) -> BleakClient:
         if self._client is None or not self._client.is_connected:
@@ -202,3 +250,25 @@ def _uuid_key(uuid: str | UUID) -> str:
 
 def _format_uuids(uuids: Iterable[str]) -> str:
     return ", ".join(sorted(set(uuids)))
+
+
+def _att_write_response(characteristic: BleakGATTCharacteristic) -> bool:
+    """Prefer write-without-response when the characteristic supports it."""
+    properties = {prop.lower() for prop in characteristic.properties}
+    if "write-without-response" in properties:
+        return False
+    return "write" in properties
+
+
+def _log_gatt_table(services: BleakGATTServiceCollection) -> None:
+    if not _LOGGER.isEnabledFor(logging.DEBUG):
+        return
+    for service in services:
+        _LOGGER.debug("GATT service %s", service.uuid)
+        for characteristic in service.characteristics:
+            properties = ",".join(characteristic.properties) or "none"
+            _LOGGER.debug(
+                "  char %s properties=%s",
+                characteristic.uuid,
+                properties,
+            )

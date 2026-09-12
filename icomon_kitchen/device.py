@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import AsyncIterator, Callable
 from types import TracebackType
 
@@ -45,6 +46,8 @@ FoodSelectionHandler = Callable[[FoodInfoNotify], None]
 CapabilitiesHandler = Callable[[DeviceCapabilities], None]
 WeightHandler = Callable[[WeightReading], None]
 Unsubscribe = Callable[[], None]
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class KitchenScaleDevice:
@@ -129,14 +132,20 @@ class KitchenScaleDevice:
         """Connect, subscribe to notifications, and send the app handshake."""
         if self.connected:
             return
+        _LOGGER.info(
+            "connecting to %s at %s",
+            self.info.ble_name,
+            self.info.address,
+        )
         await self._transport.connect()
         self._notify_task = asyncio.create_task(self._consume_notifications())
-        await self._transport.write_command(
-            build_app_reply(
-                self._config.app_reply_body,
-                device_type=self._config.device_type,
-            )
+        handshake = build_app_reply(
+            self._config.app_reply_body,
+            device_type=self._config.device_type,
         )
+        _LOGGER.info("sending app_reply handshake %s", handshake.hex())
+        await self._transport.write_command(handshake)
+        _LOGGER.info("handshake sent; waiting for FFB2 notifies")
 
     async def disconnect(self) -> None:
         """Close the BLE session."""
@@ -318,25 +327,51 @@ class KitchenScaleDevice:
         try:
             async for payload in self._transport.notifications():
                 if not payload:
+                    _LOGGER.debug("ignored empty notify")
                     continue
                 await self._dispatch_notification(payload)
         except asyncio.CancelledError:
             raise
+        except Exception:
+            _LOGGER.exception("notification listener stopped")
+            raise
 
     async def _dispatch_notification(self, payload: bytes) -> None:
         notify_type = payload[0]
+        _LOGGER.debug(
+            "dispatch notify type=0x%02x payload=%s",
+            notify_type,
+            payload.hex(),
+        )
         if notify_type == NOTIFY_KITCHEN_SCALE_DATA:
             await self._handle_weight(payload)
         elif notify_type == NOTIFY_FOOD_INFO:
             await self._handle_food_info(payload)
         elif notify_type == NOTIFY_FUN_INFO:
             self._handle_capabilities(payload)
+        else:
+            _LOGGER.info(
+                "unhandled notify type=0x%02x payload=%s",
+                notify_type,
+                payload.hex(),
+            )
 
     async def _handle_weight(self, payload: bytes) -> None:
         try:
             reading = parse_weight_notification(payload)
-        except ProtocolError:
+        except ProtocolError as exc:
+            _LOGGER.debug(
+                "ignored weight notify: %s payload=%s",
+                exc,
+                payload.hex(),
+            )
             return
+        _LOGGER.info(
+            "weight %.1f g stable=%s unit=%s",
+            reading.grams,
+            reading.stable,
+            reading.unit.name,
+        )
         self._latest_weight = reading
         self._weight_listeners.emit(reading)
         await self._readings.put(reading)
@@ -344,8 +379,19 @@ class KitchenScaleDevice:
     async def _handle_food_info(self, payload: bytes) -> None:
         try:
             notify = parse_food_info_notify(payload)
-        except ProtocolError:
+        except ProtocolError as exc:
+            _LOGGER.debug(
+                "ignored food notify: %s payload=%s",
+                exc,
+                payload.hex(),
+            )
             return
+        _LOGGER.info(
+            "food notify count=%s foods=%s payload=%s",
+            notify.count,
+            len(notify.foods),
+            notify.raw_payload.hex(),
+        )
         self._latest_food_selection = notify
         self._food_selection_listeners.emit(notify)
         await self._food_selections.put(notify)
@@ -353,8 +399,18 @@ class KitchenScaleDevice:
     def _handle_capabilities(self, payload: bytes) -> None:
         try:
             capabilities = parse_fun_info(payload)
-        except ProtocolError:
+        except ProtocolError as exc:
+            _LOGGER.debug(
+                "ignored funInfo notify: %s payload=%s",
+                exc,
+                payload.hex(),
+            )
             return
+        _LOGGER.info(
+            "funInfo flags=0x%08x payload=%s",
+            capabilities.function_flags,
+            capabilities.raw_payload.hex(),
+        )
         self._capabilities = capabilities
         self._capabilities_listeners.emit(capabilities)
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import logging
 
 from icomon_kitchen import (
     VOICE_WAKE_PHRASE,
@@ -12,6 +13,16 @@ from icomon_kitchen import (
     FoodInfoNotify,
     KitchenScaleClient,
 )
+
+
+def _configure_logging(verbose: bool) -> None:
+    level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+    if verbose:
+        logging.getLogger("bleak").setLevel(logging.DEBUG)
 
 
 def on_capabilities(caps: DeviceCapabilities) -> None:
@@ -37,7 +48,14 @@ async def main() -> int:
     parser.add_argument("--name", default="MY_SCALE", help="BLE advertised name")
     parser.add_argument("--address", help="Optional BLE MAC address")
     parser.add_argument("--seconds", type=float, default=60.0, help="Run duration")
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Log GATT writes/notifies (DEBUG) including bleak",
+    )
     args = parser.parse_args()
+    _configure_logging(args.verbose)
 
     client = KitchenScaleClient()
     device = await client.scan_for_device(name=args.name, address=args.address)
@@ -48,10 +66,10 @@ async def main() -> int:
 
     async with device:
         print(
-            f"Say {VOICE_WAKE_PHRASE!r} on the scale "
+            f"Connected. Say {VOICE_WAKE_PHRASE!r} on the scale "
             "(English, on-device ASR — no phone mic)."
         )
-        print("Waiting for food-selection notifies (0xAF)…")
+        print(f"Waiting {args.seconds:g}s for food-selection notifies (0xAF)…")
         await asyncio.sleep(args.seconds)
 
     return 0

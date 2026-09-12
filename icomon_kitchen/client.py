@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from types import TracebackType
 
 from .adapter import Adapter, create_adapter
@@ -10,6 +11,8 @@ from .config import COMM_PROTOCOL, Config
 from .device import KitchenScaleDevice
 from .exceptions import DeviceNotFoundError
 from .models import ScannedDevice
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class KitchenScaleClient:
@@ -57,6 +60,12 @@ class KitchenScaleClient:
             msg = f"no BLE device found with name {name or self.config.ble_name!r}"
             raise DeviceNotFoundError(msg)
         best = discovered[0]
+        _LOGGER.info(
+            "using %s at %s rssi=%s",
+            best.name,
+            best.address,
+            best.rssi,
+        )
         return KitchenScaleDevice(
             best.address,
             name=best.name,
@@ -73,6 +82,7 @@ class KitchenScaleClient:
         """Return matching scales discovered during a BLE scan."""
         target_name = name or self.config.ble_name
         scan_timeout = timeout if timeout is not None else self.config.scan_timeout
+        _LOGGER.info("scanning for %r (timeout=%.1fs)", target_name, scan_timeout)
         discovered = await self._backend.discover(scan_timeout)
         matches: list[ScannedDevice] = []
         for device, advertisement in discovered.values():
@@ -86,6 +96,7 @@ class KitchenScaleClient:
                     rssi=advertisement.rssi,
                 )
             )
+        _LOGGER.info("scan matched %d device(s) named %r", len(matches), target_name)
         return sorted(
             matches,
             key=lambda item: item.rssi if item.rssi is not None else -999,

@@ -19,8 +19,9 @@ from icomon_kitchen.protocol.constants import (
 
 
 class FakeChar:
-    def __init__(self, uuid: str) -> None:
+    def __init__(self, uuid: str, properties: list[str] | None = None) -> None:
         self.uuid = uuid
+        self.properties = list(properties or [])
 
 
 class FakeService:
@@ -201,5 +202,54 @@ async def test_write_file_uses_discovered_ffb4() -> None:
     await transport.connect()
     await transport.write_file(b"icon")
 
-    assert client.writes == [(str(CHAR_FILE_WRITE_UUID), b"icon", True)]
+    assert client.writes == [(str(CHAR_FILE_WRITE_UUID), b"icon", False)]
+    await transport.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_write_command_prefers_write_without_response() -> None:
+    client = FakeClient(
+        FakeServices(
+            [
+                FakeService(
+                    str(SERVICE_UUID),
+                    [
+                        FakeChar(
+                            str(CHAR_WRITE_UUID),
+                            ["write", "write-without-response"],
+                        ),
+                        FakeChar(str(CHAR_NOTIFY_UUID), ["notify"]),
+                    ],
+                )
+            ]
+        )
+    )
+    transport = _transport(client)
+    await transport.connect()
+    await transport.write_command(b"\xac\x42")
+
+    assert client.writes == [(str(CHAR_WRITE_UUID), b"\xac\x42", False)]
+    await transport.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_write_command_uses_response_when_only_write() -> None:
+    client = FakeClient(
+        FakeServices(
+            [
+                FakeService(
+                    str(SERVICE_UUID),
+                    [
+                        FakeChar(str(CHAR_WRITE_UUID), ["write"]),
+                        FakeChar(str(CHAR_NOTIFY_UUID), ["notify"]),
+                    ],
+                )
+            ]
+        )
+    )
+    transport = _transport(client)
+    await transport.connect()
+    await transport.write_command(b"\xac\x42")
+
+    assert client.writes == [(str(CHAR_WRITE_UUID), b"\xac\x42", True)]
     await transport.disconnect()
