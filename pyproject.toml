@@ -1,0 +1,128 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = [ "setuptools>=77.0.3" ]
+
+[project]
+name = "icomon-kitchen-scale"
+version = "0.0.0"
+description = "Async BLE client for ICOMON / Fitdays+ kitchen scales (protocol 113 GeneralV2)."
+readme = "README.md"
+license = "MIT"
+authors = [
+  { name = "ICOMON Developer", email = "dev@example.com" },
+]
+requires-python = ">=3.10"
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Intended Audience :: Developers",
+  "Natural Language :: English",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: 3.15",
+  "Topic :: Software Development :: Libraries",
+  "Topic :: System :: Hardware",
+  "Topic :: System :: Networking",
+]
+dependencies = [
+  "bleak>=1.0",
+]
+urls."Bug Tracker" = "https://github.com/icomon/icomon-kitchen-scale/issues"
+urls.repository = "https://github.com/icomon/icomon-kitchen-scale"
+
+[tool.setuptools.packages.find]
+where = [ "." ]
+include = [ "icomon_kitchen*" ]
+
+[dependency-groups]
+dev = [
+  "coverage",
+  "mypy>=2.3",
+  "pytest==9.*",
+  "pytest-asyncio==1.*",
+  "pytest-cov==7.*",
+]
+
+[tool.ruff]
+line-length = 88
+lint.select = [
+  "B",   # flake8-bugbear
+  "C4",  # flake8-comprehensions
+  "D",   # flake8-docstrings
+  "E",   # pycodestyle
+  "F",   # pyflake
+  "I",   # isort
+  "RUF", # ruff specific
+  "S",   # flake8-bandit
+  "UP",  # pyupgrade
+  "W",   # pycodestyle
+]
+lint.ignore = [
+  "D100", # Missing docstring in public module
+  "D104", # Missing docstring in public package
+  "D107", # Missing docstring in `__init__`
+  "D203", # 1 blank line required before class docstring
+  "D212", # Multi-line docstring summary should start at the first line
+  "D401", # First line of docstring should be in imperative mood
+]
+lint.per-file-ignores."conftest.py" = [ "D100" ]
+lint.per-file-ignores."icomon_kitchen/adapter.py" = [ "D102", "D105" ]
+lint.per-file-ignores."icomon_kitchen/ble/backend.py" = [ "D102" ]
+lint.per-file-ignores."icomon_kitchen/client.py" = [ "D105" ]
+lint.per-file-ignores."icomon_kitchen/cloud.py" = [ "D102" ]
+lint.per-file-ignores."icomon_kitchen/device.py" = [ "D105" ]
+lint.per-file-ignores."examples/**/*" = [ "D103" ]
+lint.per-file-ignores."tests/**/*" = [
+  "D100",
+  "D101",
+  "D102",
+  "D103",
+  "D104",
+  "S101",
+]
+lint.isort.known-first-party = [ "icomon_kitchen", "tests" ]
+
+[tool.pyproject-fmt]
+max_supported_python = "3.15"
+
+[tool.mypy]
+mypy_path = "."
+exclude = [
+]
+disallow_any_generics = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_unreachable = true
+overrides = [
+  { module = "tests.*", allow_untyped_defs = true },
+]
+no_implicit_optional = true
+show_error_codes = true
+
+[tool.pytest]
+addopts = [
+  "-v",
+  "-Wonce",
+  "-p no:doctest",
+  "--cov=icomon_kitchen",
+  "--cov-report=term",
+  "--cov-report=xml",
+]
+asyncio_mode = "auto"
+minversion = "9.0"
+
+[tool.coverage]
+run.branch = true
+report.exclude_lines = [
+  "@overload",
+  'if __name__ == "__main__":',
+  "if TYPE_CHECKING",
+  "pragma: no cover",
+  "raise NotImplementedError",
+]

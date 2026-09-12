@@ -1,0 +1,38 @@
+name: Checks
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+concurrency:
+  group: ${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint and Format
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref || github.ref }}
+
+      - uses: astral-sh/setup-uv@v10
+
+      - uses: j178/prek-action@v3
+        id: prek
+        continue-on-error: true
+
+      - uses: pre-commit-ci/lite-action@v1
+        if: always()
+        with:
+          msg: "chore: auto-fix from pre-commit hooks"
+
+      - name: Fail if hooks failed
+        if: steps.prek.outcome == 'failure'
+        run: exit 1
+
