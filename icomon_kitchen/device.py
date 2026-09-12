@@ -3,17 +3,32 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from types import TracebackType
 
 from ._weight_accessor import WeightAccessor
 from .ble.transport import BleTransport
 from .config import Config
 from .exceptions import NotConnectedError, ProtocolError
-from .models import ProtocolVersion, ScaleInfo, Unit, WeightReading
+from .models import (
+    DeviceCapabilities,
+    FoodInfo,
+    ProtocolVersion,
+    ScaleInfo,
+    Unit,
+    WeightReading,
+)
 from .protocol.commands import build_app_reply, build_setting_tare, build_setting_unit
-from .protocol.constants import DEVICE_TYPE_KG2458, NOTIFY_KITCHEN_SCALE_DATA
-from .protocol.notify import parse_weight_notification
+from .protocol.constants import (
+    DEVICE_TYPE_KG2458,
+    NOTIFY_FOOD_INFO,
+    NOTIFY_FUN_INFO,
+    NOTIFY_KITCHEN_SCALE_DATA,
+)
+from .protocol.notify import parse_food_info, parse_fun_info, parse_weight_notification
+
+FoodInfoHandler = Callable[[FoodInfo], None]
+CapabilitiesHandler = Callable[[DeviceCapabilities], None]
 
 
 class KitchenScaleDevice:
@@ -26,12 +41,18 @@ class KitchenScaleDevice:
         name: str,
         config: Config | None = None,
         transport: BleTransport | None = None,
+        on_food_info: FoodInfoHandler | None = None,
+        on_capabilities: CapabilitiesHandler | None = None,
     ) -> None:
         self._config = config or Config(address=address, ble_name=name)
         self._transport = transport or BleTransport(address)
         self._latest: WeightReading | None = None
+        self._capabilities: DeviceCapabilities | None = None
         self._notify_task: asyncio.Task[None] | None = None
         self._readings: asyncio.Queue[WeightReading] = asyncio.Queue()
+        self._food_infos: asyncio.Queue[FoodInfo] = asyncio.Queue()
+        self._on_food_info = on_food_info
+        self._on_capabilities = on_capabilities
         self.info = ScaleInfo(
             model=self._config.model,
             ble_name=name,
@@ -44,6 +65,11 @@ class KitchenScaleDevice:
     def connected(self) -> bool:
         """Return whether the BLE session is active."""
         return self._transport.connected
+
+    @property
+    def capabilities(self) -> DeviceCapabilities | None:
+        """Latest ``funInfo`` capabilities, when the scale sends them."""
+        return self._capabilities
 
     async def connect(self) -> None:
         """Connect, subscribe to notifications, and send the app handshake."""
@@ -85,6 +111,10 @@ class KitchenScaleDevice:
         """Wait for the next live weight notification."""
         return await self._readings.get()
 
+    async def read_food_info(self) -> FoodInfo:
+        """Wait for the next ``ICFoodInfo`` (0xAF) notify from voice recognition."""
+        return await self._food_infos.get()
+
     @property
     def weight(self) -> WeightAccessor:
         """Awaitable latest reading: ``reading = await device.weight``."""
@@ -94,6 +124,19 @@ class KitchenScaleDevice:
         """Iterate live weight readings until disconnected."""
         while self.connected:
             yield await self.read_weight()
+
+    async def food_infos(self) -> AsyncIterator[FoodInfo]:
+        """Iterate food-info notifications from on-device voice recognition."""
+        while self.connected:
+            yield await self.read_food_info()
+
+    def set_food_info_handler(self, handler: FoodInfoHandler | None) -> None:
+        """Register a callback for ``ICFoodInfo`` (0xAF) notifications."""
+        self._on_food_info = handler
+
+    def set_capabilities_handler(self, handler: CapabilitiesHandler | None) -> None:
+        """Register a callback for ``funInfo`` (0xA0) capability notifications."""
+        self._on_capabilities = handler
 
     async def __aenter__(self) -> KitchenScaleDevice:
         await self.connect()
@@ -117,16 +160,44 @@ class KitchenScaleDevice:
             async for payload in self._transport.notifications():
                 if not payload:
                     continue
-                if payload[0] != NOTIFY_KITCHEN_SCALE_DATA:
-                    continue
-                try:
-                    reading = parse_weight_notification(payload)
-                except ProtocolError:
-                    continue
-                self._latest = reading
-                await self._readings.put(reading)
+                await self._dispatch_notification(payload)
         except asyncio.CancelledError:
             raise
+
+    async def _dispatch_notification(self, payload: bytes) -> None:
+        notify_type = payload[0]
+        if notify_type == NOTIFY_KITCHEN_SCALE_DATA:
+            await self._handle_weight(payload)
+        elif notify_type == NOTIFY_FOOD_INFO:
+            await self._handle_food_info(payload)
+        elif notify_type == NOTIFY_FUN_INFO:
+            self._handle_capabilities(payload)
+
+    async def _handle_weight(self, payload: bytes) -> None:
+        try:
+            reading = parse_weight_notification(payload)
+        except ProtocolError:
+            return
+        self._latest = reading
+        await self._readings.put(reading)
+
+    async def _handle_food_info(self, payload: bytes) -> None:
+        try:
+            food = parse_food_info(payload)
+        except ProtocolError:
+            return
+        await self._food_infos.put(food)
+        if self._on_food_info is not None:
+            self._on_food_info(food)
+
+    def _handle_capabilities(self, payload: bytes) -> None:
+        try:
+            capabilities = parse_fun_info(payload)
+        except ProtocolError:
+            return
+        self._capabilities = capabilities
+        if self._on_capabilities is not None:
+            self._on_capabilities(capabilities)
 
 
 def _protocol_for_device_type(device_type: int) -> ProtocolVersion:

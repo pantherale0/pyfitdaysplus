@@ -10,13 +10,28 @@ from .exceptions import (
     ProtocolError,
     UnsupportedProtocolError,
 )
-from .models import ProtocolVersion, ScaleInfo, ScannedDevice, Unit, WeightReading
+from .models import (
+    VOICE_WAKE_PHRASE,
+    DeviceCapabilities,
+    DeviceFunction,
+    FoodInfo,
+    ProtocolVersion,
+    ScaleInfo,
+    ScannedDevice,
+    Unit,
+    WeightReading,
+)
+from .protocol.notify import parse_food_info, parse_fun_info
 
 __all__ = [
     "COMM_PROTOCOL",
+    "VOICE_WAKE_PHRASE",
     "Client",
     "Config",
+    "DeviceCapabilities",
+    "DeviceFunction",
     "DeviceNotFoundError",
+    "FoodInfo",
     "IcomonKitchenError",
     "KitchenScaleClient",
     "KitchenScaleDevice",
@@ -29,5 +44,7 @@ __all__ = [
     "UnsupportedProtocolError",
     "WeightReading",
     "__version__",
+    "parse_food_info",
+    "parse_fun_info",
 ]
 __version__ = "0.0.0"

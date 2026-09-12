@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import IntEnum
+from enum import IntEnum, IntFlag
 from typing import Literal
 
 
@@ -28,6 +28,22 @@ class ProtocolVersion(IntEnum):
     GENERAL_V2_113 = 113
 
 
+class DeviceFunction(IntFlag):
+    """
+    Named bits from ``ICConstant.ICDeviceFunction`` (vendor SDK).
+
+    Bit positions are **not verified on the wire** yet; treat ``function_flags``
+    on :class:`DeviceCapabilities` as authoritative and use these names only as
+    helpers once offsets are confirmed against ``funInfo`` captures.
+    """
+
+    VOICE_ASSISTANT = 1 << 12
+    VOICE_LANGUAGE = 1 << 13
+
+
+VOICE_WAKE_PHRASE = "Hello Vita"
+
+
 @dataclass(frozen=True, slots=True)
 class ScannedDevice:
     """A BLE scale discovered during scanning."""
@@ -47,6 +63,43 @@ class WeightReading:
     stable: bool
     raw_type: int
     raw_payload: bytes
+
+
+@dataclass(frozen=True, slots=True)
+class DeviceCapabilities:
+    """Capabilities reported in a ``funInfo`` (0xA0) notification."""
+
+    function_flags: int
+    raw_payload: bytes
+
+    def supports(self, function: DeviceFunction) -> bool:
+        """Return whether ``function`` appears enabled in ``function_flags``."""
+        return bool(self.function_flags & function)
+
+    @property
+    def voice_assistant(self) -> bool:
+        """Return whether the scale reports on-device voice ASR."""
+        return self.supports(DeviceFunction.VOICE_ASSISTANT)
+
+    @property
+    def voice_language(self) -> bool:
+        """Configurable voice language (SDK: ``ICDeviceFunctionVoiceLanguage``)."""
+        return self.supports(DeviceFunction.VOICE_LANGUAGE)
+
+
+@dataclass(frozen=True, slots=True)
+class FoodInfo:
+    """
+    Food/nutrition payload from on-device voice ASR (``ICFoodInfo``, notify 0xAF).
+
+    Recognition runs on the scale microphone; Fitdays+ receives structured food
+    data over BLE. This v1 parser exposes a best-effort ``food_id`` plus the
+    raw tail for forward-compatible decoding.
+    """
+
+    food_id: int | None
+    raw_payload: bytes
+    nutrition_payload: bytes
 
 
 @dataclass(frozen=True, slots=True)
