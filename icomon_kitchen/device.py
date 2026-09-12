@@ -12,7 +12,7 @@ from .config import Config
 from .exceptions import NotConnectedError, ProtocolError
 from .models import (
     DeviceCapabilities,
-    FoodInfo,
+    FoodInfoNotify,
     ProtocolVersion,
     ScaleInfo,
     Unit,
@@ -25,9 +25,13 @@ from .protocol.constants import (
     NOTIFY_FUN_INFO,
     NOTIFY_KITCHEN_SCALE_DATA,
 )
-from .protocol.notify import parse_food_info, parse_fun_info, parse_weight_notification
+from .protocol.notify import (
+    parse_food_info_notify,
+    parse_fun_info,
+    parse_weight_notification,
+)
 
-FoodSelectionHandler = Callable[[FoodInfo], None]
+FoodSelectionHandler = Callable[[FoodInfoNotify], None]
 CapabilitiesHandler = Callable[[DeviceCapabilities], None]
 
 
@@ -51,7 +55,7 @@ class KitchenScaleDevice:
         self._capabilities: DeviceCapabilities | None = None
         self._notify_task: asyncio.Task[None] | None = None
         self._readings: asyncio.Queue[WeightReading] = asyncio.Queue()
-        self._food_selections: asyncio.Queue[FoodInfo] = asyncio.Queue()
+        self._food_selections: asyncio.Queue[FoodInfoNotify] = asyncio.Queue()
         self._on_food_selection = on_food_selection or on_food_info
         self._on_capabilities = on_capabilities
         self.info = ScaleInfo(
@@ -112,11 +116,11 @@ class KitchenScaleDevice:
         """Wait for the next live weight notification."""
         return await self._readings.get()
 
-    async def read_food_selection(self) -> FoodInfo:
-        """Wait for the next on-device voice food selection (``ICFoodInfo`` / 0xAF)."""
+    async def read_food_selection(self) -> FoodInfoNotify:
+        """Wait for the next ``ICFoodInfo`` notify (``0xAF``) from voice ASR."""
         return await self._food_selections.get()
 
-    async def read_food_info(self) -> FoodInfo:
+    async def read_food_info(self) -> FoodInfoNotify:
         """Alias for :meth:`read_food_selection`."""
         return await self.read_food_selection()
 
@@ -130,21 +134,21 @@ class KitchenScaleDevice:
         while self.connected:
             yield await self.read_weight()
 
-    async def food_selections(self) -> AsyncIterator[FoodInfo]:
-        """Iterate voice-selected foods reported by the scale over BLE."""
+    async def food_selections(self) -> AsyncIterator[FoodInfoNotify]:
+        """Iterate ``ICFoodInfo`` notifies from on-device voice recognition."""
         while self.connected:
             yield await self.read_food_selection()
 
-    async def food_infos(self) -> AsyncIterator[FoodInfo]:
+    async def food_infos(self) -> AsyncIterator[FoodInfoNotify]:
         """Alias for :meth:`food_selections`."""
-        async for food in self.food_selections():
-            yield food
+        async for notify in self.food_selections():
+            yield notify
 
     def set_food_selection_handler(
         self,
         handler: FoodSelectionHandler | None,
     ) -> None:
-        """Register a callback for voice food selections (``ICFoodInfo`` / 0xAF)."""
+        """Register a callback for ``ICFoodInfo`` (``0xAF``) notifications."""
         self._on_food_selection = handler
 
     def set_food_info_handler(self, handler: FoodSelectionHandler | None) -> None:
@@ -200,12 +204,12 @@ class KitchenScaleDevice:
 
     async def _handle_food_info(self, payload: bytes) -> None:
         try:
-            food = parse_food_info(payload)
+            notify = parse_food_info_notify(payload)
         except ProtocolError:
             return
-        await self._food_selections.put(food)
+        await self._food_selections.put(notify)
         if self._on_food_selection is not None:
-            self._on_food_selection(food)
+            self._on_food_selection(notify)
 
     def _handle_capabilities(self, payload: bytes) -> None:
         try:

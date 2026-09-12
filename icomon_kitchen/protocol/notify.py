@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from ..exceptions import ProtocolError
-from ..models import DeviceCapabilities, FoodInfo, Unit, WeightReading
-from . import food_info as food_info_layout
+from ..models import DeviceCapabilities, FoodInfoNotify, Unit, WeightReading
 from .constants import (
     NOTIFY_FOOD_INFO,
     NOTIFY_FUN_INFO,
@@ -67,58 +66,30 @@ def parse_fun_info(payload: bytes) -> DeviceCapabilities:
     return DeviceCapabilities(function_flags=function_flags, raw_payload=bytes(payload))
 
 
-def parse_food_info(payload: bytes) -> FoodInfo:
+def parse_food_info_notify(payload: bytes) -> FoodInfoNotify:
     """
-    Parse ``ICFoodInfo`` (notify ``0xAF`` / 175) after on-device voice ASR.
+    Recognize ``ICFoodInfo`` (notify ``0xAF`` / 175) and preserve raw bytes.
 
-    Decodes ``foodId`` and ``foodIndex`` per ``ICKitchenScaleGeneralWorker``.
-    Trailing bytes are exposed as ``extra`` for forward-compatible nutrition
-    decoding (layout still TODO — see ``protocol.food_info``).
+    Fitdays+ decodes this notify in native code before Java sees ``count`` and
+    ``foods`` (each with ``foodId`` / ``foodIndex``). Without a verified wire
+    map, ``count`` stays ``None`` and ``foods`` is empty — see
+    ``protocol.food_info`` for TODO notes.
     """
-    if len(payload) < food_info_layout.MIN_PAYLOAD_FOOD_ID:
-        msg = (
-            "foodInfo notification too short for foodId: "
-            f"{len(payload)} bytes, need at least "
-            f"{food_info_layout.MIN_PAYLOAD_FOOD_ID}"
-        )
+    if not payload:
+        msg = "foodInfo notification is empty"
         raise ProtocolError(msg)
     if payload[0] != NOTIFY_FOOD_INFO:
         msg = f"expected notify type 0x{NOTIFY_FOOD_INFO:02x}, got 0x{payload[0]:02x}"
         raise ProtocolError(msg)
 
-    food_id = int.from_bytes(
-        payload[
-            food_info_layout.FOOD_ID_OFFSET : food_info_layout.FOOD_ID_OFFSET
-            + food_info_layout.FOOD_ID_SIZE
-        ],
-        "big",
-    )
-
-    if len(payload) >= food_info_layout.MIN_PAYLOAD_WIDE:
-        food_index = int.from_bytes(
-            payload[
-                food_info_layout.FOOD_INDEX_OFFSET_WIDE : (
-                    food_info_layout.FOOD_INDEX_OFFSET_WIDE
-                    + food_info_layout.FOOD_INDEX_SIZE_WIDE
-                )
-            ],
-            "big",
-        )
-        extra = bytes(payload[food_info_layout.MIN_PAYLOAD_WIDE :])
-    elif len(payload) >= food_info_layout.MIN_PAYLOAD_COMPACT:
-        food_index = payload[food_info_layout.FOOD_INDEX_OFFSET_COMPACT]
-        extra = bytes(payload[food_info_layout.MIN_PAYLOAD_COMPACT :])
-    else:
-        msg = (
-            "foodInfo notification too short for foodIndex: "
-            f"{len(payload)} bytes, need at least "
-            f"{food_info_layout.MIN_PAYLOAD_COMPACT}"
-        )
-        raise ProtocolError(msg)
-
-    return FoodInfo(
-        food_id=food_id,
-        food_index=food_index,
-        extra=extra,
+    return FoodInfoNotify(
+        raw_type=payload[0],
         raw_payload=bytes(payload),
+        count=None,
+        foods=(),
     )
+
+
+def parse_food_info(payload: bytes) -> FoodInfoNotify:
+    """Alias for :func:`parse_food_info_notify`."""
+    return parse_food_info_notify(payload)

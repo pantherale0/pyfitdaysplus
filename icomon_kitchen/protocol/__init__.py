@@ -20,7 +20,12 @@ from .framing import (
     split_frames,
     verify_frame,
 )
-from .notify import parse_food_info, parse_fun_info, parse_weight_notification
+from .notify import (
+    parse_food_info,
+    parse_food_info_notify,
+    parse_fun_info,
+    parse_weight_notification,
+)
 
 __all__ = [
     "DEVICE_TYPE_KG2458",
@@ -36,6 +41,7 @@ __all__ = [
     "encode_file_frame",
     "encode_frame",
     "parse_food_info",
+    "parse_food_info_notify",
     "parse_fun_info",
     "parse_weight_notification",
     "split_frames",

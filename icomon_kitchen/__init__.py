@@ -15,13 +15,14 @@ from .models import (
     DeviceCapabilities,
     DeviceFunction,
     FoodInfo,
+    FoodInfoNotify,
     ProtocolVersion,
     ScaleInfo,
     ScannedDevice,
     Unit,
     WeightReading,
 )
-from .protocol.notify import parse_food_info, parse_fun_info
+from .protocol.notify import parse_food_info, parse_food_info_notify, parse_fun_info
 
 __all__ = [
     "COMM_PROTOCOL",
@@ -32,6 +33,7 @@ __all__ = [
     "DeviceFunction",
     "DeviceNotFoundError",
     "FoodInfo",
+    "FoodInfoNotify",
     "IcomonKitchenError",
     "KitchenScaleClient",
     "KitchenScaleDevice",
@@ -45,6 +47,7 @@ __all__ = [
     "WeightReading",
     "__version__",
     "parse_food_info",
+    "parse_food_info_notify",
     "parse_fun_info",
 ]
 __version__ = "0.0.0"

@@ -74,8 +74,9 @@ uv run python examples/read_weight.py --name MY_SCALE
 - `async for reading in device.weights(): ...`
 - `await device.tare()`
 - `await device.set_unit(Unit.G)` (also `ML`, `LB`, `OZ`, …)
-- `await device.read_food_selection()` / `async for food in device.food_selections():`
-- `device.set_food_selection_handler(callback)` for voice ASR results (`foodId`, `foodIndex`)
+- `await device.read_food_selection()` → `FoodInfoNotify` with `raw_payload`
+- `async for notify in device.food_selections():` — decode `notify.foods` when wire map exists
+- `device.set_food_selection_handler(callback)` for voice ASR **`0xAF`** notifies
 - `device.capabilities` / `parse_fun_info` for optional voice capability bits
 - Injectable BLE backend via `KitchenScaleClient(backend=...)` for tests
 
@@ -83,35 +84,34 @@ No raw UUIDs or wire command bytes are required for normal kitchen-scale use.
 
 ### On-device voice food selection
 
-The **KG2458ULB-D** microphone runs offline AI food recognition locally. Say
-**“Hello Vita”** on the scale; when recognition succeeds, Fitdays+ receives an
-**`ICFoodInfo`** notify (**`0xAF` / 175**) with **`foodId`** and **`foodIndex`**
-— not audio.
+The **KG2458ULB-D** microphone runs offline AI food recognition locally (wake
+**“Hello Vita”**). Fitdays+ handles notify **`0xAF` / 175** only after native
+**`libICBleProtocol.so`** decodes BLE bytes into a Java map:
 
-Provisional wire layout (see `icomon_kitchen/protocol/food_info.py`):
+- `count` (int)
+- `foods`: list of `{ foodId, foodIndex }`
+- empty when `count == 0`
 
-| Offset | Field | Type |
-| --- | --- | --- |
-| 0 | notify type | `0xAF` |
-| 1–2 | `foodId` | u16 BE |
-| 3–4 | `foodIndex` | u16 BE when `len >= 5` |
-| 3 | `foodIndex` | u8 when `len == 4` |
-| tail | nutrition / metadata | **TODO** — exposed as `FoodInfo.extra` |
+Java never sees raw offsets. This library recognizes **`0xAF`**, preserves
+**`raw_payload`**, and leaves **`count` / `foods` empty** until the wire layout
+is verified (see `icomon_kitchen/protocol/food_info.py`).
 
 ```python
-from icomon_kitchen import KitchenScaleClient
+from icomon_kitchen import KitchenScaleClient, parse_food_info_notify
 
 client = KitchenScaleClient()
 device = await client.scan_for_device(name="MY_SCALE")
 
-def on_food(food):
-    print(food.food_id, food.food_index)
+def on_voice_food(notify):
+    print(notify.raw_payload.hex())
+    for food in notify.foods:
+        print(food.food_id, food.food_index)
 
-device.set_food_selection_handler(on_food)
+device.set_food_selection_handler(on_voice_food)
 
 async with device:
-    async for food in device.food_selections():
-        print(f"Selected food {food.food_id} index {food.food_index}")
+    notify = await device.read_food_selection()
+    parsed = parse_food_info_notify(notify.raw_payload)
 ```
 
 We do **not** stream audio or inject the **“Hello Vita”** wake phrase over BLE.
@@ -130,7 +130,9 @@ Verified TX vectors for `device_type=0x42`:
 
 Live weight arrives on notify type **`0xA6`** (`ICKitchenScaleData`). The Fitdays app exposes weight field `b` in **milligrams** (163000 → 163.0 g).
 
-Voice-derived food uses notify **`0xAF`** (`ICFoodInfo`: **`foodId`**, **`foodIndex`**, optional tail bytes). Device functions (including voice assistant/language) may be advertised in **`0xA0`** (`funInfo`); bit positions are provisional.
+Voice food selection uses notify **`0xAF`** (`ICFoodInfo`). Decoded Java shape:
+`count` + `foods[{ foodId, foodIndex }]`. **BLE byte packing is unknown** in v1;
+use `FoodInfoNotify.raw_payload`.
 
 ## Fitdays cloud
 
@@ -139,8 +141,7 @@ HTTP/cloud sync is **not implemented**. `icomon_kitchen.cloud.FitdaysCloudClient
 ## Known unknowns
 
 - Full **`0xA6`** notify field map (stable/unit offsets are best-effort)
-- Full **`0xAF`** tail / nutrition field map (`FoodInfo.extra` is raw-only today)
-- Exact **`foodIndex`** width on all firmware builds (u8 compact vs u16 wide)
+- **`0xAF` BLE payload packing** for `count` / `foods[{ foodId, foodIndex }]` (native decode only today)
 - Exact **`funInfo`** bit map for `ICDeviceFunctionVoiceAssistant` / `ICDeviceFunctionVoiceLanguage`
 - Whether voice language selection has a documented BLE setting command
 - No wire evidence for **“Hello Vita”** wake triggering or **audio/PCM** streaming over GATT

@@ -1,35 +1,29 @@
 """
-``ICFoodInfo`` (notify ``0xAF``) wire layout notes.
+``ICFoodInfo`` (notify ``0xAF`` / 175) — decoded shape vs wire bytes.
 
-Mapped from Fitdays+ ``ICKitchenScaleGeneralWorker`` / ``ICFoodInfo`` field
-names (``foodId``, ``foodIndex``). Offsets follow the same big-endian pattern
-as sibling kitchen notifies (``0xA6`` weight, ``0xA0`` funInfo).
+Fitdays+ ``ICKitchenScaleGeneralWorker`` receives notify type **175 / 0xAF**
+only **after** native ``libICBleProtocol.so`` decodes the BLE bytes into a Map:
 
-Provisional layout
-------------------
+- ``count`` (int)
+- ``foods`` (list of maps), each with ``foodId`` and ``foodIndex`` (ints)
+- Empty ``foods`` when ``count == 0``
 
-+---------+------------+------------------------------------------+
-| Offset  | Field      | Type                                     |
-+=========+============+==========================================+
-| 0       | notify     | ``0xAF``                                   |
-| 1..2    | foodId     | u16 BE                                   |
-| 3..4    | foodIndex  | u16 BE when ``len >= 5``                 |
-| 3       | foodIndex  | u8 when ``len == 4`` (compact variant)   |
-| 4+ / 5+ | extra      | **TODO** — nutrition / confidence / name |
-+---------+------------+------------------------------------------+
+Java never sees raw field offsets. The exact BLE payload packing of ``0xAF`` is
+**unknown** without native reverse engineering or live HCI of a **Hello Vita**
+voice selection.
 
-On-device voice ASR (wake **"Hello Vita"**) selects a food locally; the client
-only receives IDs over BLE — no PCM/audio on FFB2.
+This library therefore validates the notify type, preserves ``raw_payload``,
+and leaves ``count`` / ``foods`` empty until a verified wire map exists.
+
+On-device voice ASR (wake **"Hello Vita"**) runs on the scale; clients receive
+food data over BLE, not PCM/audio on FFB2.
 """
 
 from __future__ import annotations
 
 FOOD_INFO_TYPE = 0xAF
-FOOD_ID_OFFSET = 1
-FOOD_ID_SIZE = 2
-FOOD_INDEX_OFFSET_COMPACT = 3
-FOOD_INDEX_OFFSET_WIDE = 3
-FOOD_INDEX_SIZE_WIDE = 2
-MIN_PAYLOAD_FOOD_ID = FOOD_ID_OFFSET + FOOD_ID_SIZE
-MIN_PAYLOAD_COMPACT = MIN_PAYLOAD_FOOD_ID + 1
-MIN_PAYLOAD_WIDE = FOOD_INDEX_OFFSET_WIDE + FOOD_INDEX_SIZE_WIDE
+
+# TODO: provisional wire hypotheses (NOT implemented — do not decode yet):
+# - leading count byte or u16 BE after 0xAF
+# - repeated (foodId, foodIndex) tuples, endianness unknown
+# - possible native-only framing before the 0xAF notify type byte on FFB2

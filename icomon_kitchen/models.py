@@ -90,17 +90,14 @@ class DeviceCapabilities:
 @dataclass(frozen=True, slots=True)
 class FoodInfo:
     """
-    Food selection from on-device voice ASR (``ICFoodInfo``, notify ``0xAF``).
+    One food entry from an ``ICFoodInfo`` voice selection (SDK map shape).
 
-    The scale runs offline recognition (wake **"Hello Vita"**); the client only
-    receives ``foodId`` and ``foodIndex`` over BLE — never audio. Trailing
-    ``extra`` bytes may hold nutrition data (layout TODO).
+    Populated when the ``0xAF`` wire layout is known; until then see
+    :class:`FoodInfoNotify` which carries ``raw_payload`` only.
     """
 
     food_id: int
-    food_index: int
-    extra: bytes
-    raw_payload: bytes
+    food_index: int | None = None
 
     @property
     def foodId(self) -> int:
@@ -108,9 +105,24 @@ class FoodInfo:
         return self.food_id
 
     @property
-    def foodIndex(self) -> int:
+    def foodIndex(self) -> int | None:
         """SDK-style alias for :attr:`food_index`."""
         return self.food_index
+
+
+@dataclass(frozen=True, slots=True)
+class FoodInfoNotify:
+    """
+    Raw ``ICFoodInfo`` notify (``0xAF``) plus decoded fields when available.
+
+    Mirrors the Java map from ``libICBleProtocol.so`` via
+    ``ICKitchenScaleGeneralWorker``: ``count``, ``foods``, and ``raw_payload``.
+    """
+
+    raw_type: int
+    raw_payload: bytes
+    count: int | None = None
+    foods: tuple[FoodInfo, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
