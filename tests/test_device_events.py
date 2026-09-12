@@ -10,6 +10,7 @@ import pytest
 from icomon_kitchen.device import KitchenScaleDevice
 from icomon_kitchen.models import DeviceFunction
 from icomon_kitchen.protocol.constants import NOTIFY_FOOD_INFO
+from icomon_kitchen.protocol.framing import encode_frame
 from icomon_kitchen.protocol.notify import parse_weight_notification
 
 _WEIGHT_PAYLOAD = bytes([0xA6, 0x02, 0x7C, 0xB8, 0x00, 0x01])
@@ -108,9 +109,21 @@ def test_parse_weight_fixture_used_in_cache_test() -> None:
 @pytest.mark.asyncio
 async def test_unhandled_notify_is_logged(caplog: pytest.LogCaptureFixture) -> None:
     device = KitchenScaleDevice("78:66:A5:D3:47:1E", name="MY_SCALE")
-    payload = bytes([0xAC, 0x42, 0x00])
+    payload = encode_frame(0xB0, b"\x01")
     with caplog.at_level(logging.INFO, logger="icomon_kitchen.device"):
         await device._dispatch_notification(payload)
 
-    assert "unhandled notify type=0xac" in caplog.text
+    assert "unhandled notify type=0xb0" in caplog.text
     assert payload.hex() in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_live_a6_frame_updates_weight_cache() -> None:
+    device = KitchenScaleDevice("78:66:A5:D3:47:1E", name="MY_SCALE")
+    payload = bytes.fromhex("ac42000e000000104be00000000003c389e200a620")
+    await device._dispatch_notification(payload)
+
+    reading = device.latest_weight
+    assert reading is not None
+    assert reading.milligrams == 1_068_000
+    assert reading.raw_type == 0xA6

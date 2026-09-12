@@ -7,11 +7,19 @@ import pytest
 from icomon_kitchen.exceptions import ProtocolError
 from icomon_kitchen.models import DeviceFunction, FoodInfo, Unit
 from icomon_kitchen.protocol.constants import NOTIFY_FOOD_INFO
+from icomon_kitchen.protocol.framing import decode_notify_payload
 from icomon_kitchen.protocol.notify import (
     parse_food_info,
     parse_food_info_notify,
     parse_fun_info,
     parse_weight_notification,
+)
+
+LIVE_A6_IDLE = bytes.fromhex("ac42000e0001000000000000000003c389e200a6e6")
+LIVE_A6_WEIGHT = bytes.fromhex("ac42000e000000104be00000000003c389e200a620")
+LIVE_A6_UNSTABLE = bytes.fromhex("ac42000e0080000318f80000000003c389e200a678")
+LIVE_A0_FUN_INFO = bytes.fromhex(
+    "ac42001a0000fc4f02262602262600003703e0014b00000001000000000000a008"
 )
 
 
@@ -24,9 +32,43 @@ def test_parse_kitchen_scale_weight_milligrams() -> None:
     assert reading.stable is True
 
 
+def test_parse_live_a6_frame_idle_is_zero_grams() -> None:
+    reading = parse_weight_notification(LIVE_A6_IDLE)
+    assert reading.raw_type == 0xA6
+    assert reading.milligrams == 0
+    assert reading.stable is True
+    assert reading.raw_payload == LIVE_A6_IDLE
+
+
+def test_parse_live_a6_frame_milligrams() -> None:
+    reading = parse_weight_notification(LIVE_A6_WEIGHT)
+    assert reading.milligrams == 1_068_000
+    assert reading.grams == pytest.approx(1068.0)
+    assert reading.unit is Unit.G
+    assert reading.stable is True
+
+
+def test_parse_live_a6_frame_unstable_flag() -> None:
+    reading = parse_weight_notification(LIVE_A6_UNSTABLE)
+    assert reading.milligrams == 203_000
+    assert reading.stable is False
+
+
+def test_decode_notify_payload_unwraps_ac_frame() -> None:
+    notify_type, inner = decode_notify_payload(LIVE_A6_WEIGHT)
+    assert notify_type == 0xA6
+    assert inner[:2] == b"\x00\x0e"
+
+
+def test_parse_live_fun_info_frame() -> None:
+    capabilities = parse_fun_info(LIVE_A0_FUN_INFO)
+    assert capabilities.raw_payload == LIVE_A0_FUN_INFO
+    assert capabilities.function_flags == 0x00FC4F02
+
+
 def test_parse_weight_requires_a6_type() -> None:
     with pytest.raises(ProtocolError, match="expected notify type"):
-        parse_weight_notification(b"\xA0\x00\x00\x00")
+        parse_weight_notification(b"\xa0\x00\x00\x00")
 
 
 def test_parse_fun_info_voice_capability_bits() -> None:
@@ -54,7 +96,7 @@ def test_parse_food_info_alias_matches_notify_parser() -> None:
 
 def test_parse_food_info_requires_af_type() -> None:
     with pytest.raises(ProtocolError, match="expected notify type"):
-        parse_food_info_notify(b"\xA6\x00\x00")
+        parse_food_info_notify(b"\xa6\x00\x00")
 
 
 def test_parse_food_info_rejects_empty_payload() -> None:

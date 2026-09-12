@@ -36,6 +36,7 @@ from .protocol.food_write import (
     build_set_common_food_indexed_frames,
     build_set_nutrition_frame,
 )
+from .protocol.framing import decode_notify_payload
 from .protocol.notify import (
     parse_food_info_notify,
     parse_fun_info,
@@ -337,7 +338,15 @@ class KitchenScaleDevice:
             raise
 
     async def _dispatch_notification(self, payload: bytes) -> None:
-        notify_type = payload[0]
+        try:
+            notify_type, _inner = decode_notify_payload(payload)
+        except ProtocolError as exc:
+            _LOGGER.debug(
+                "ignored notify: %s payload=%s",
+                exc,
+                payload.hex(),
+            )
+            return
         _LOGGER.debug(
             "dispatch notify type=0x%02x payload=%s",
             notify_type,

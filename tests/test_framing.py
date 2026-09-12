@@ -9,7 +9,12 @@ from icomon_kitchen.protocol.commands import (
     build_read_history,
     build_setting_tare,
 )
-from icomon_kitchen.protocol.framing import checksum, encode_frame, verify_frame
+from icomon_kitchen.protocol.framing import (
+    checksum,
+    decode_frame,
+    encode_frame,
+    verify_frame,
+)
 
 
 @pytest.mark.parametrize(
@@ -51,3 +56,20 @@ def test_build_setting_tare_frame() -> None:
 def test_encode_frame_rejects_invalid_command() -> None:
     with pytest.raises(Exception, match="command must fit"):
         encode_frame(999)
+
+
+def test_decode_frame_round_trips_app_reply() -> None:
+    frame = bytes.fromhex("ac42000200a000d173")
+    device_type, command, payload = decode_frame(frame)
+    assert device_type == 0x42
+    assert command == 0xD1
+    assert payload == bytes.fromhex("000200a000")
+
+
+def test_decode_live_a6_notify_uses_trailing_command() -> None:
+    frame = bytes.fromhex("ac42000e000000104be00000000003c389e200a620")
+    verify_frame(frame)
+    device_type, command, payload = decode_frame(frame)
+    assert device_type == 0x42
+    assert command == 0xA6
+    assert payload[:2] == b"\x00\x0e"

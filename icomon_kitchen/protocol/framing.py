@@ -56,9 +56,7 @@ def verify_frame(frame: bytes) -> None:
         raise ProtocolError(msg)
     expected = checksum(frame[2:-1])
     if frame[-1] != expected:
-        msg = (
-            f"checksum mismatch: got 0x{frame[-1]:02x}, expected 0x{expected:02x}"
-        )
+        msg = f"checksum mismatch: got 0x{frame[-1]:02x}, expected 0x{expected:02x}"
         raise ProtocolError(msg)
 
 
@@ -66,11 +64,36 @@ def split_frames(data: bytes, *, mtu: int = 20) -> list[bytes]:
     """Split a long payload into MTU-sized chunks for protocol 113."""
     chunk_size = max(mtu - 7, 1)
     return [
-        data[index : index + chunk_size]
-        for index in range(0, len(data), chunk_size)
+        data[index : index + chunk_size] for index in range(0, len(data), chunk_size)
     ]
 
 
 def encode_file_frame(data: bytes) -> bytes:
     """Return raw bytes for FFB4 file transfer (no AC/checksum wrapper)."""
     return data
+
+
+def decode_frame(frame: bytes) -> tuple[int, int, bytes]:
+    """
+    Return ``(device_type, command, payload)`` from a General/V2 frame.
+
+    Layout: ``AC | device_type | payload… | cmd | checksum``.
+    """
+    verify_frame(frame)
+    return frame[1], frame[-2], frame[2:-2]
+
+
+def decode_notify_payload(payload: bytes) -> tuple[int, bytes]:
+    """
+    Return ``(notify_type, inner_payload)`` from a raw FFB2 packet.
+
+    Live KG2458 notifies are General/V2 frames (magic ``AC``, command before
+    checksum). Compact test vectors start with the notify type byte itself.
+    """
+    if not payload:
+        msg = "empty notify"
+        raise ProtocolError(msg)
+    if payload[0] == MAGIC:
+        _device_type, command, inner = decode_frame(payload)
+        return command, inner
+    return payload[0], payload[1:]

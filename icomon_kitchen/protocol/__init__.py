@@ -42,6 +42,8 @@ from .food_write import (
 )
 from .framing import (
     checksum,
+    decode_frame,
+    decode_notify_payload,
     encode_file_frame,
     encode_frame,
     split_frames,
@@ -89,6 +91,8 @@ __all__ = [
     "build_setting_unit",
     "build_setting_weight_grams",
     "checksum",
+    "decode_frame",
+    "decode_notify_payload",
     "encode_common_food_facts",
     "encode_file_frame",
     "encode_frame",
