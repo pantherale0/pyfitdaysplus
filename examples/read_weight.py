@@ -58,7 +58,7 @@ async def main() -> int:
             nonlocal received
             received += 1
             print(
-                f"{reading.grams:.1f} g "
+                f"{reading.value:.2f} {reading.unit.symbol} "
                 f"({reading.milligrams} mg, unit={reading.unit.name}, "
                 f"stable={reading.stable})"
             )

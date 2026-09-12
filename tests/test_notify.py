@@ -7,7 +7,7 @@ import pytest
 from icomon_kitchen.exceptions import ProtocolError
 from icomon_kitchen.models import DeviceFunction, FoodInfo, Unit
 from icomon_kitchen.protocol.constants import NOTIFY_FOOD_INFO
-from icomon_kitchen.protocol.framing import decode_notify_payload
+from icomon_kitchen.protocol.framing import decode_notify_payload, encode_frame
 from icomon_kitchen.protocol.notify import (
     parse_food_info,
     parse_food_info_notify,
@@ -52,6 +52,23 @@ def test_parse_live_a6_frame_unstable_flag() -> None:
     reading = parse_weight_notification(LIVE_A6_UNSTABLE)
     assert reading.milligrams == 203_000
     assert reading.stable is False
+
+
+def test_parse_live_a6_frame_unit_byte() -> None:
+    data = bytes([0x00, int(Unit.OZ)]) + (28_350).to_bytes(3, "big") + bytes(9)
+    body = (14).to_bytes(2, "big") + b"\x00" + data
+    reading = parse_weight_notification(encode_frame(0xA6, body))
+    assert reading.unit is Unit.OZ
+    assert reading.milligrams == 28_350
+    assert reading.value == pytest.approx(1.0, rel=1e-3)
+
+
+def test_weight_reading_converts_grams_to_display_unit() -> None:
+    payload = bytes([0xA6, 0x00, 0x01, 0xF4, int(Unit.LB), 0x01])
+    reading = parse_weight_notification(payload)
+    assert reading.grams == pytest.approx(0.5)
+    assert reading.unit is Unit.LB
+    assert reading.value == pytest.approx(0.5 / 453.59237)
 
 
 def test_decode_notify_payload_unwraps_ac_frame() -> None:

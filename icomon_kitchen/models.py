@@ -19,6 +19,35 @@ class Unit(IntEnum):
     FL_OZ_WATER = 6
     FL_OZ_MILK = 7
 
+    @property
+    def symbol(self) -> str:
+        """Short label for this unit."""
+        return _UNIT_SYMBOLS[self]
+
+
+_UNIT_SYMBOLS: dict[Unit, str] = {
+    Unit.G: "g",
+    Unit.ML: "ml",
+    Unit.LB: "lb",
+    Unit.OZ: "oz",
+    Unit.MG: "mg",
+    Unit.ML_MILK: "ml milk",
+    Unit.FL_OZ_WATER: "fl oz",
+    Unit.FL_OZ_MILK: "fl oz milk",
+}
+
+# Grams of water-equivalent mass per one display unit.
+_GRAMS_PER_UNIT: dict[Unit, float] = {
+    Unit.G: 1.0,
+    Unit.ML: 1.0,
+    Unit.LB: 453.59237,
+    Unit.OZ: 28.349523125,
+    Unit.MG: 0.001,
+    Unit.ML_MILK: 1.03,
+    Unit.FL_OZ_WATER: 29.5735295625,
+    Unit.FL_OZ_MILK: 30.460735449375,
+}
+
 
 class ProtocolVersion(IntEnum):
     """Known ICOMON scale protocol families."""
@@ -63,6 +92,11 @@ class WeightReading:
     stable: bool
     raw_type: int
     raw_payload: bytes
+
+    @property
+    def value(self) -> float:
+        """Numeric value in :attr:`unit` (mass still stored as milligrams)."""
+        return self.grams / _GRAMS_PER_UNIT[self.unit]
 
 
 @dataclass(frozen=True, slots=True)

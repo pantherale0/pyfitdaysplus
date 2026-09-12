@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .device import KitchenScaleDevice
-    from .models import WeightReading
+    from .models import Unit, WeightReading
 
 
 class WeightAccessor:
@@ -63,3 +63,9 @@ class CachedWeightAccessor:
         """Stability flag from the latest cached reading, if any."""
         reading = self.reading
         return None if reading is None else reading.stable
+
+    @property
+    def unit(self) -> Unit | None:
+        """Display unit from the latest cached reading, if any."""
+        reading = self.reading
+        return None if reading is None else reading.unit

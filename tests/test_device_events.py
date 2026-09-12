@@ -8,7 +8,7 @@ import logging
 import pytest
 
 from icomon_kitchen.device import KitchenScaleDevice
-from icomon_kitchen.models import DeviceFunction
+from icomon_kitchen.models import DeviceFunction, Unit
 from icomon_kitchen.protocol.constants import NOTIFY_FOOD_INFO
 from icomon_kitchen.protocol.framing import encode_frame
 from icomon_kitchen.protocol.notify import parse_weight_notification
@@ -127,3 +127,33 @@ async def test_live_a6_frame_updates_weight_cache() -> None:
     assert reading is not None
     assert reading.milligrams == 1_068_000
     assert reading.raw_type == 0xA6
+    assert reading.unit is Unit.G
+    assert device.cached_weight.unit is Unit.G
+
+
+@pytest.mark.asyncio
+async def test_unit_change_is_logged(caplog: pytest.LogCaptureFixture) -> None:
+    device = KitchenScaleDevice("78:66:A5:D3:47:1E", name="MY_SCALE")
+    grams = encode_frame(
+        0xA6,
+        (14).to_bytes(2, "big")
+        + b"\x00"
+        + bytes([0x00, int(Unit.G)])
+        + (1000).to_bytes(3, "big")
+        + bytes(9),
+    )
+    ounces = encode_frame(
+        0xA6,
+        (14).to_bytes(2, "big")
+        + b"\x00"
+        + bytes([0x00, int(Unit.OZ)])
+        + (1000).to_bytes(3, "big")
+        + bytes(9),
+    )
+    with caplog.at_level(logging.INFO, logger="icomon_kitchen.device"):
+        await device._dispatch_notification(grams)
+        await device._dispatch_notification(ounces)
+
+    assert "unit changed G -> OZ" in caplog.text
+    assert device.latest_weight is not None
+    assert device.latest_weight.unit is Unit.OZ

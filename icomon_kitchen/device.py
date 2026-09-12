@@ -375,9 +375,17 @@ class KitchenScaleDevice:
                 payload.hex(),
             )
             return
+        previous = self._latest_weight
+        if previous is not None and previous.unit != reading.unit:
+            _LOGGER.info(
+                "unit changed %s -> %s",
+                previous.unit.name,
+                reading.unit.name,
+            )
         _LOGGER.info(
-            "weight %.1f g stable=%s unit=%s",
-            reading.grams,
+            "weight %.4g %s stable=%s unit=%s",
+            reading.value,
+            reading.unit.symbol,
             reading.stable,
             reading.unit.name,
         )

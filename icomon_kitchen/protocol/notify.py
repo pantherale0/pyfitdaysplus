@@ -20,7 +20,8 @@ def parse_weight_notification(payload: bytes) -> WeightReading:
     Live FFB2 packets are General/V2 frames whose trailing command is ``0xA6``.
     The inner body is splitData-style ``total_len u16 | seq u8 | data``. Live
     captures place milligrams as a 24-bit big-endian field at data offset 2
-    (Fitdays field ``b``). Data byte 0 bit ``0x80`` is treated as unstable.
+    (Fitdays field ``b``). Data byte 0 bit ``0x80`` is treated as unstable;
+    data byte 1 is the display unit (``ICKitchenScale`` unit ordinal).
     Compact ``A6 | mg u24 | unit | stable`` vectors used by tests are still
     accepted.
     """
@@ -37,7 +38,7 @@ def parse_weight_notification(payload: bytes) -> WeightReading:
             msg = f"weight notification too short: {len(data)} data bytes"
             raise ProtocolError(msg)
         milligrams = int.from_bytes(data[2:5], "big")
-        unit = Unit.G
+        unit = _unit_or_grams(data[1])
         stable = data[0] & 0x80 == 0
     else:
         if len(body) < 3:
