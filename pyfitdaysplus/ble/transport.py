@@ -9,10 +9,11 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from bleak.backends.characteristic import BleakGATTCharacteristic
+from bleak.backends.device import BLEDevice
 from bleak.backends.service import BleakGATTService, BleakGATTServiceCollection
 from bleak.uuids import normalize_uuid_str
 
-from ..exceptions import NotConnectedError, ProtocolError
+from ..exceptions import DeviceNotFoundError, NotConnectedError, ProtocolError
 from ..protocol.constants import (
     CHAR_FILE_WRITE_UUID,
     CHAR_NOTIFY_UUID,
@@ -34,6 +35,8 @@ class BleTransport:
         self,
         address: str,
         *,
+        ble_device: BLEDevice | None = None,
+        name: str | None = None,
         backend: BleBackend | None = None,
         service_uuid: UUID = SERVICE_UUID,
         write_uuid: UUID = CHAR_WRITE_UUID,
@@ -41,6 +44,8 @@ class BleTransport:
         file_write_uuid: UUID = CHAR_FILE_WRITE_UUID,
     ) -> None:
         self.address = address
+        self._ble_device = ble_device
+        self._name = name
         self._backend = backend or DefaultBleBackend()
         self._service_uuid = service_uuid
         self._write_uuid = write_uuid
@@ -75,10 +80,11 @@ class BleTransport:
         """Connect and subscribe to scale notifications."""
         if self.connected:
             return
-        client = self._backend.client(self.address)
+        device = await self._resolve_ble_device()
+        name = self._name or device.name or self.address
         try:
             _LOGGER.info("connecting to %s", self.address)
-            await client.connect()
+            client = await self._backend.establish_connection(device, name)
             self._client = client
             await self._discover_characteristics()
             _LOGGER.info("enabling notifications on %s", self._notify_uuid_str)
@@ -90,6 +96,17 @@ class BleTransport:
             _LOGGER.debug("connect failed for %s", self.address, exc_info=True)
             await self.disconnect()
             raise
+
+    async def _resolve_ble_device(self) -> BLEDevice:
+        device = self._ble_device
+        if device is not None:
+            return device
+        device = await self._backend.ble_device(self.address)
+        if device is None:
+            msg = f"no BLE device found at {self.address}"
+            raise DeviceNotFoundError(msg)
+        self._ble_device = device
+        return device
 
     def has_service(self, uuid: UUID) -> bool:
         """Return whether a GATT service UUID is present on the connected device."""

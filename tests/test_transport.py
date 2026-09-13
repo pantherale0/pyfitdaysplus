@@ -6,10 +6,11 @@ from typing import Any, cast
 from uuid import UUID
 
 import pytest
+from bleak.backends.device import BLEDevice
 
 from pyfitdaysplus.ble.backend import BleBackend
 from pyfitdaysplus.ble.transport import BleTransport
-from pyfitdaysplus.exceptions import ProtocolError
+from pyfitdaysplus.exceptions import DeviceNotFoundError, ProtocolError
 from pyfitdaysplus.protocol.constants import (
     CHAR_FILE_WRITE_UUID,
     CHAR_NOTIFY_UUID,
@@ -89,12 +90,28 @@ class FakeClient:
 class FakeBackend:
     def __init__(self, client: FakeClient) -> None:
         self._client = client
+        self.ble_device_lookups: list[str] = []
 
     async def discover(self, timeout: float) -> dict[str, tuple[object, object]]:
         return {}
 
-    def client(self, _address: str) -> FakeClient:
+    async def ble_device(self, address: str) -> FakeBleDevice | None:
+        self.ble_device_lookups.append(address)
+        return FakeBleDevice(address)
+
+    async def establish_connection(
+        self,
+        _device: object,
+        _name: str,
+    ) -> FakeClient:
+        await self._client.connect()
         return self._client
+
+
+class FakeBleDevice:
+    def __init__(self, address: str, name: str = "MY_SCALE") -> None:
+        self.address = address
+        self.name = name
 
 
 def _service(*char_uuids: str, service_uuid: str | None = None) -> FakeServices:
@@ -253,3 +270,53 @@ async def test_write_command_uses_response_when_only_write() -> None:
 
     assert client.writes == [(str(CHAR_WRITE_UUID), b"\xac\x42", True)]
     await transport.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_connect_looks_up_ble_device() -> None:
+    client = FakeClient(_service(str(CHAR_WRITE_UUID), str(CHAR_NOTIFY_UUID)))
+    backend = FakeBackend(client)
+    transport = BleTransport(
+        "78:66:A5:D3:47:1E",
+        backend=cast(BleBackend, backend),
+    )
+
+    await transport.connect()
+
+    assert backend.ble_device_lookups == ["78:66:A5:D3:47:1E"]
+    await transport.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_connect_skips_lookup_when_ble_device_given() -> None:
+    client = FakeClient(_service(str(CHAR_WRITE_UUID), str(CHAR_NOTIFY_UUID)))
+    backend = FakeBackend(client)
+    transport = BleTransport(
+        "78:66:A5:D3:47:1E",
+        ble_device=cast(BLEDevice, FakeBleDevice("78:66:A5:D3:47:1E")),
+        name="MY_SCALE",
+        backend=cast(BleBackend, backend),
+    )
+
+    await transport.connect()
+
+    assert backend.ble_device_lookups == []
+    await transport.disconnect()
+
+
+@pytest.mark.asyncio
+async def test_connect_raises_when_ble_device_missing() -> None:
+    class MissingBackend(FakeBackend):
+        async def ble_device(self, address: str) -> FakeBleDevice | None:
+            return None
+
+    client = FakeClient(_service(str(CHAR_WRITE_UUID), str(CHAR_NOTIFY_UUID)))
+    transport = BleTransport(
+        "78:66:A5:D3:47:1E",
+        backend=cast(BleBackend, MissingBackend(client)),
+    )
+
+    with pytest.raises(DeviceNotFoundError, match="78:66:A5:D3:47:1E"):
+        await transport.connect()
+
+    assert client.is_connected is False

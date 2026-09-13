@@ -38,7 +38,9 @@ pip install pyfitdaysplus
 uv sync
 ```
 
-Requires Python 3.10+, [`bleak`](https://github.com/hbldh/bleak) for BLE, and a Linux/macOS/Windows host with Bluetooth.
+Requires Python 3.10+, [`bleak`](https://github.com/hbldh/bleak) and
+[`bleak-retry-connector`](https://github.com/Bluetooth-Devices/bleak-retry-connector)
+for BLE, and a Linux/macOS/Windows host with Bluetooth.
 
 ## Quick start
 
@@ -137,6 +139,8 @@ uv run python examples/listen_voice.py --name MY_SCALE
 - `await device.probe_compatibility()` — merge funInfo with GATT (FFB4, Nordic DFU)
   and live weight, without extra command writes
 - Injectable BLE backend via `KitchenScaleClient(backend=...)` for tests
+- Connections use [`bleak-retry-connector`](https://github.com/Bluetooth-Devices/bleak-retry-connector)
+  (`establish_connection` + GATT service cache) instead of a raw `BleakClient.connect()`
 
 No raw UUIDs or wire command bytes are required for normal kitchen-scale use.
 

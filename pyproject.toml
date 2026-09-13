@@ -29,7 +29,8 @@ classifiers = [
   "Topic :: System :: Networking",
 ]
 dependencies = [
-  "bleak>=1.0",
+  "bleak>=3.0.2",
+  "bleak-retry-connector>=4.4",
 ]
 urls."Bug Tracker" = "https://github.com/pantherale0/pyfitdaysplus/issues"
 urls.repository = "https://github.com/pantherale0/pyfitdaysplus"

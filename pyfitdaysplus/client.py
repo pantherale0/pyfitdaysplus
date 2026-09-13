@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import logging
 
+from bleak.backends.device import BLEDevice
+
 from .ble.backend import BleBackend, DefaultBleBackend
 from .ble.transport import BleTransport
 from .config import Config
@@ -36,30 +38,20 @@ class KitchenScaleClient:
         """Scan for a scale by advertised name or explicit address."""
         if address:
             device_name = name or self.config.ble_name
-            return Device(
-                address,
-                name=device_name,
-                config=self._with_address(address, device_name),
-                transport=BleTransport(address, backend=self._backend),
-            )
+            return self._device(address, device_name)
 
-        discovered = await self.scan(name=name, timeout=timeout)
-        if not discovered:
+        matches = await self._matching_devices(name=name, timeout=timeout)
+        if not matches:
             msg = f"no BLE device found with name {name or self.config.ble_name!r}"
             raise DeviceNotFoundError(msg)
-        best = discovered[0]
+        ble_device, best = matches[0]
         _LOGGER.info(
             "using %s at %s rssi=%s",
             best.name,
             best.address,
             best.rssi,
         )
-        return Device(
-            best.address,
-            name=best.name,
-            config=self._with_address(best.address, best.name),
-            transport=BleTransport(best.address, backend=self._backend),
-        )
+        return self._device(best.address, best.name, ble_device=ble_device)
 
     async def scan(
         self,
@@ -68,27 +60,58 @@ class KitchenScaleClient:
         timeout: float | None = None,
     ) -> list[ScannedDevice]:
         """Return matching scales discovered during a BLE scan."""
+        matches = await self._matching_devices(name=name, timeout=timeout)
+        return [scanned for _device, scanned in matches]
+
+    async def _matching_devices(
+        self,
+        *,
+        name: str | None = None,
+        timeout: float | None = None,
+    ) -> list[tuple[BLEDevice, ScannedDevice]]:
         target_name = name or self.config.ble_name
         scan_timeout = timeout if timeout is not None else self.config.scan_timeout
         _LOGGER.info("scanning for %r (timeout=%.1fs)", target_name, scan_timeout)
         discovered = await self._backend.discover(scan_timeout)
-        matches: list[ScannedDevice] = []
+        matches: list[tuple[BLEDevice, ScannedDevice]] = []
         for device, advertisement in discovered.values():
             device_name = advertisement.local_name or device.name or ""
             if device_name != target_name:
                 continue
             matches.append(
-                ScannedDevice(
-                    name=device_name,
-                    address=device.address,
-                    rssi=advertisement.rssi,
+                (
+                    device,
+                    ScannedDevice(
+                        name=device_name,
+                        address=device.address,
+                        rssi=advertisement.rssi,
+                    ),
                 )
             )
         _LOGGER.info("scan matched %d device(s) named %r", len(matches), target_name)
-        return sorted(
-            matches,
-            key=lambda item: item.rssi if item.rssi is not None else -999,
+        matches.sort(
+            key=lambda item: item[1].rssi if item[1].rssi is not None else -999,
             reverse=True,
+        )
+        return matches
+
+    def _device(
+        self,
+        address: str,
+        name: str,
+        *,
+        ble_device: BLEDevice | None = None,
+    ) -> Device:
+        return Device(
+            address,
+            name=name,
+            config=self._with_address(address, name),
+            transport=BleTransport(
+                address,
+                ble_device=ble_device,
+                name=name,
+                backend=self._backend,
+            ),
         )
 
     def _with_address(self, address: str, name: str) -> Config:

@@ -8,7 +8,7 @@ class IcomonKitchenError(Exception):
 
 
 class DeviceNotFoundError(IcomonKitchenError):
-    """No matching BLE device was found during scanning."""
+    """No matching BLE device was found."""
 
 
 class NotConnectedError(IcomonKitchenError):

@@ -1,7 +1,9 @@
+from typing import cast
 from unittest.mock import MagicMock
 
 import pytest
 
+from pyfitdaysplus.ble.backend import BleBackend
 from pyfitdaysplus.client import Client, KitchenScaleClient
 from pyfitdaysplus.config import COMM_PROTOCOL, Config
 from pyfitdaysplus.device import Device
@@ -41,11 +43,30 @@ async def test_scan_filters_by_name() -> None:
             advertisement.rssi = -55
             return {device.address: (device, advertisement)}
 
-    client = KitchenScaleClient(backend=FakeBackend())
+    client = KitchenScaleClient(backend=cast(BleBackend, FakeBackend()))
     matches = await client.scan(name="MY_SCALE", timeout=1.0)
     assert matches == [
         ScannedDevice(name="MY_SCALE", address="78:66:A5:D3:47:1E", rssi=-55)
     ]
+
+
+@pytest.mark.asyncio
+async def test_scan_for_device_keeps_ble_device() -> None:
+    ble_device = MagicMock()
+    ble_device.address = "78:66:A5:D3:47:1E"
+    ble_device.name = "MY_SCALE"
+    advertisement = MagicMock()
+    advertisement.local_name = "MY_SCALE"
+    advertisement.rssi = -40
+
+    class FakeBackend:
+        async def discover(self, timeout: float) -> dict[str, tuple[object, object]]:
+            return {ble_device.address: (ble_device, advertisement)}
+
+    client = KitchenScaleClient(backend=cast(BleBackend, FakeBackend()))
+    device = await client.scan_for_device(name="MY_SCALE", timeout=1.0)
+    assert device.info.address == "78:66:A5:D3:47:1E"
+    assert device._transport._ble_device is ble_device
 
 
 @pytest.mark.asyncio

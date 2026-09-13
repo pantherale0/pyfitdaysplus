@@ -76,7 +76,7 @@ class Device:
         transport: BleTransport | None = None,
     ) -> None:
         self._config = config or Config(address=address, ble_name=name)
-        self._transport = transport or BleTransport(address)
+        self._transport = transport or BleTransport(address, name=name)
         self._weight: WeightReading | None = None
         self._food: FoodInfoNotify | None = None
         self._ack: CommandAck | None = None
