@@ -127,7 +127,7 @@ async def test_state_ack_is_parsed_not_unhandled(
 ) -> None:
     device = Device("78:66:A5:D3:47:1E", name="MY_SCALE")
     payload = bytes.fromhex("ac42000200d200a175")
-    with caplog.at_level(logging.INFO, logger="pyfitdaysplus.device"):
+    with caplog.at_level(logging.DEBUG, logger="pyfitdaysplus.device"):
         await device._dispatch_notification(payload)
 
     assert device.ack is not None
@@ -136,7 +136,7 @@ async def test_state_ack_is_parsed_not_unhandled(
     assert "ack cmd=0xd2" in caplog.text
     device = Device("78:66:A5:D3:47:1E", name="MY_SCALE")
     payload = encode_frame(0xB0, b"\x01")
-    with caplog.at_level(logging.INFO, logger="pyfitdaysplus.device"):
+    with caplog.at_level(logging.DEBUG, logger="pyfitdaysplus.device"):
         await device._dispatch_notification(payload)
 
     assert "unhandled notify type=0xb0" in caplog.text
@@ -175,7 +175,7 @@ async def test_unit_change_is_logged(caplog: pytest.LogCaptureFixture) -> None:
         + (1000).to_bytes(3, "big")
         + bytes(9),
     )
-    with caplog.at_level(logging.INFO, logger="pyfitdaysplus.device"):
+    with caplog.at_level(logging.DEBUG, logger="pyfitdaysplus.device"):
         await device._dispatch_notification(grams)
         await device._dispatch_notification(ounces)
 

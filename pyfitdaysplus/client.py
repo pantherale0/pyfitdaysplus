@@ -45,7 +45,7 @@ class KitchenScaleClient:
             msg = f"no BLE device found with name {name or self.config.ble_name!r}"
             raise DeviceNotFoundError(msg)
         ble_device, best = matches[0]
-        _LOGGER.info(
+        _LOGGER.debug(
             "using %s at %s rssi=%s",
             best.name,
             best.address,
@@ -71,7 +71,7 @@ class KitchenScaleClient:
     ) -> list[tuple[BLEDevice, ScannedDevice]]:
         target_name = name or self.config.ble_name
         scan_timeout = timeout if timeout is not None else self.config.scan_timeout
-        _LOGGER.info("scanning for %r (timeout=%.1fs)", target_name, scan_timeout)
+        _LOGGER.debug("scanning for %r (timeout=%.1fs)", target_name, scan_timeout)
         discovered = await self._backend.discover(scan_timeout)
         matches: list[tuple[BLEDevice, ScannedDevice]] = []
         for device, advertisement in discovered.values():
@@ -88,7 +88,7 @@ class KitchenScaleClient:
                     ),
                 )
             )
-        _LOGGER.info("scan matched %d device(s) named %r", len(matches), target_name)
+        _LOGGER.debug("scan matched %d device(s) named %r", len(matches), target_name)
         matches.sort(
             key=lambda item: item[1].rssi if item[1].rssi is not None else -999,
             reverse=True,

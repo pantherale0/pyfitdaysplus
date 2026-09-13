@@ -130,7 +130,7 @@ class Device:
         """Connect, subscribe to notifications, and send the app handshake."""
         if self.connected:
             return
-        _LOGGER.info(
+        _LOGGER.debug(
             "connecting to %s at %s",
             self.info.ble_name,
             self.info.address,
@@ -138,7 +138,7 @@ class Device:
         await self._transport.connect()
         att_mtu = self._transport.att_mtu
         self._config.mtu = max(SPLIT_DATA_HEADER_LEN + 1, att_mtu - 7)
-        _LOGGER.info(
+        _LOGGER.debug(
             "ATT MTU=%s split body max=%s",
             att_mtu,
             self._config.mtu,
@@ -149,9 +149,9 @@ class Device:
                 self._fun_info_event.wait(),
                 timeout=self._config.fun_info_timeout,
             )
-            _LOGGER.info("funInfo received; sending app_reply")
+            _LOGGER.debug("funInfo received; sending app_reply")
         except TimeoutError:
-            _LOGGER.info(
+            _LOGGER.debug(
                 "no funInfo within %.1fs; sending app_reply anyway",
                 self._config.fun_info_timeout,
             )
@@ -159,9 +159,9 @@ class Device:
             self._config.app_reply_body,
             device_type=self._config.device_type,
         )
-        _LOGGER.info("sending app_reply handshake %s", handshake.hex())
+        _LOGGER.debug("sending app_reply handshake %s", handshake.hex())
         await self._transport.write_command(handshake)
-        _LOGGER.info("handshake sent; waiting for FFB2 notifies")
+        _LOGGER.debug("handshake sent; waiting for FFB2 notifies")
         await self.probe_compatibility()
 
     async def disconnect(self) -> None:
@@ -223,7 +223,7 @@ class Device:
         else:
             caps = _merge_compatibility(caps, extra)
         if caps is not self._capabilities:
-            _LOGGER.info(
+            _LOGGER.debug(
                 "compatibility=%s flags=0x%08x",
                 ",".join(flag.name or str(flag) for flag in caps.flags),
                 int(caps.compatibility),
@@ -460,7 +460,7 @@ class Device:
         elif notify_type in {NOTIFY_HISTORY_WEIGHTS, NOTIFY_HISTORY_WEIGHTS_ALT}:
             self._handle_history_weights(payload)
         else:
-            _LOGGER.info(
+            _LOGGER.debug(
                 "unhandled notify type=0x%02x payload=%s",
                 notify_type,
                 payload.hex(),
@@ -476,7 +476,7 @@ class Device:
                 payload.hex(),
             )
             return
-        _LOGGER.info(
+        _LOGGER.debug(
             "ack cmd=0x%02x state=%s payload=%s",
             ack.command,
             ack.state,
@@ -495,7 +495,7 @@ class Device:
             )
             return
         for reading in records:
-            _LOGGER.info(
+            _LOGGER.debug(
                 "saved weight %.4g %s food=%s payload=%s",
                 reading.value,
                 reading.unit.symbol,
@@ -516,16 +516,16 @@ class Device:
             return
         previous = self._weight
         if previous is not None and previous.unit != reading.unit:
-            _LOGGER.info(
+            _LOGGER.debug(
                 "unit changed %s -> %s",
                 previous.unit.name,
                 reading.unit.name,
             )
         if is_ok and not self._on_device_confirm_held:
-            _LOGGER.info("on-device confirm (A6 isOk)")
+            _LOGGER.debug("on-device confirm (A6 isOk)")
             self._events.emit(Event.ON_DEVICE_CONFIRM, reading)
         self._on_device_confirm_held = is_ok
-        _LOGGER.info(
+        _LOGGER.debug(
             "weight %.4g %s stable=%s tare=%s unit=%s food=%s",
             reading.value,
             reading.unit.symbol,
@@ -549,7 +549,7 @@ class Device:
                 payload.hex(),
             )
             return
-        _LOGGER.info(
+        _LOGGER.debug(
             "food notify count=%s foods=%s payload=%s",
             notify.count,
             len(notify.foods),
@@ -569,7 +569,7 @@ class Device:
                 payload.hex(),
             )
             return
-        _LOGGER.info(
+        _LOGGER.debug(
             "funInfo flags=0x%08x battery=%s compatibility=%s payload=%s",
             int(capabilities.function_flags),
             None if capabilities.battery is None else capabilities.battery.percent,

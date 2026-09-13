@@ -83,15 +83,15 @@ class BleTransport:
         device = await self._resolve_ble_device()
         name = self._name or device.name or self.address
         try:
-            _LOGGER.info("connecting to %s", self.address)
+            _LOGGER.debug("connecting to %s", self.address)
             client = await self._backend.establish_connection(device, name)
             self._client = client
             await self._discover_characteristics()
-            _LOGGER.info("enabling notifications on %s", self._notify_uuid_str)
+            _LOGGER.debug("enabling notifications on %s", self._notify_uuid_str)
             await client.start_notify(self._notify_uuid_str, self._on_notify)
             self._notify_started = True
             await self._refresh_att_mtu(client)
-            _LOGGER.info("GATT session ready on %s", self.address)
+            _LOGGER.debug("GATT session ready on %s", self.address)
         except BaseException:
             _LOGGER.debug("connect failed for %s", self.address, exc_info=True)
             await self.disconnect()
@@ -138,7 +138,7 @@ class BleTransport:
         self._notify_started = False
         if client is None:
             return
-        _LOGGER.info("disconnecting from %s", self.address)
+        _LOGGER.debug("disconnecting from %s", self.address)
         try:
             if notify_started and client.is_connected:
                 await client.stop_notify(self._notify_uuid_str)
@@ -228,7 +228,7 @@ class BleTransport:
         if file_write is None:
             self._file_write_uuid_str = None
             self._file_write_with_response = False
-            _LOGGER.info(
+            _LOGGER.debug(
                 "FFB0 write=%s notify=%s file=absent write_with_response=%s",
                 write.uuid,
                 notify.uuid,
@@ -238,7 +238,7 @@ class BleTransport:
 
         self._file_write_uuid_str = file_write.uuid
         self._file_write_with_response = _att_write_response(file_write)
-        _LOGGER.info(
+        _LOGGER.debug(
             "FFB0 write=%s notify=%s file=%s write_with_response=%s",
             write.uuid,
             notify.uuid,
@@ -255,7 +255,7 @@ class BleTransport:
         if mtu is None or mtu < 23:
             return
         backend._mtu_size = mtu
-        _LOGGER.info("BlueZ GATT MTU=%s", mtu)
+        _LOGGER.debug("BlueZ GATT MTU=%s", mtu)
 
     def _require_client(self) -> BleakClient:
         if self._client is None or not self._client.is_connected:
