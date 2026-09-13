@@ -182,12 +182,18 @@ def test_parse_fun_info_voice_capability_bits() -> None:
     assert bool(capabilities.function_flags & DeviceFunction.VOICE_ASSISTANT)
 
 
-def test_parse_food_info_notify_recognizes_af_and_preserves_raw() -> None:
+def test_parse_food_info_notify_decodes_count_and_foods() -> None:
     payload = bytes([0xAF, 0x01, 0x2C, 0x00, 0x10, 0x20, 0x30])
     notify = parse_food_info_notify(payload)
     assert notify.raw_type == NOTIFY_FOOD_INFO
     assert notify.raw_payload == payload
-    assert notify.count is None
+    assert notify.count == 1
+    assert notify.foods == (FoodInfo(food_id=0x00102030, food_index=0x2C),)
+
+
+def test_parse_food_info_notify_count_zero() -> None:
+    notify = parse_food_info_notify(bytes([0xAF, 0x00]))
+    assert notify.count == 0
     assert notify.foods == ()
 
 
@@ -199,6 +205,20 @@ def test_parse_food_info_requires_af_type() -> None:
 def test_parse_food_info_rejects_empty_payload() -> None:
     with pytest.raises(ProtocolError, match="empty"):
         parse_food_info_notify(b"")
+
+
+def test_parse_food_info_rejects_truncated_entry() -> None:
+    with pytest.raises(ProtocolError, match="truncated"):
+        parse_food_info_notify(bytes([0xAF, 0x01, 0x2C, 0x00, 0x05]))
+
+
+def test_parse_food_info_split_data_frame() -> None:
+    data = bytes([0x01, 0x00, 0x00, 0x00, 0x04, 0xD2])
+    body = (6).to_bytes(2, "big") + b"\x00" + data
+    payload = encode_frame(0xAF, body)
+    notify = parse_food_info_notify(payload)
+    assert notify.count == 1
+    assert notify.foods == (FoodInfo(food_id=1234, food_index=0),)
 
 
 def test_food_info_entry_supports_optional_food_index() -> None:

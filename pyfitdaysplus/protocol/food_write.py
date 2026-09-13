@@ -222,7 +222,7 @@ def build_delete_common_foods_payload(
     """
     Build the inner payload for delete-common-food commands.
 
-    **Provisional layout:** ``count u8 | (foodId u32 BE + foodIndex u8)…``
+    Native D8 (216) and DC (220): ``count u8 | (foodIndex u8 + foodId u32 BE)…``.
     """
     if len(entries) > 0xFF:
         msg = f"at most 255 delete entries supported, got {len(entries)}"
@@ -232,8 +232,8 @@ def build_delete_common_foods_payload(
         if not 0 <= entry.food_index <= 0xFF:
             msg = f"food_index must fit in one byte, got {entry.food_index}"
             raise ProtocolError(msg)
-        body.extend(_write_int_be(entry.food_id))
         body.append(entry.food_index)
+        body.extend(_write_int_be(entry.food_id))
     return bytes(body)
 
 

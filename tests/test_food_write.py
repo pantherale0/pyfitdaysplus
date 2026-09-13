@@ -17,6 +17,7 @@ from pyfitdaysplus.protocol.constants import (
 )
 from pyfitdaysplus.protocol.food_decode import (
     parse_common_food_body,
+    parse_food_reference_list,
     reassemble_split_data_frames,
 )
 from pyfitdaysplus.protocol.food_write import (
@@ -177,14 +178,15 @@ def test_delete_common_foods_payload_structure() -> None:
         FoodReference(food_id=10, food_index=0),
     ]
     payload = build_delete_common_foods_payload(entries)
-    assert payload == b"\x02\x00\x00\x00\x09\x02\x00\x00\x00\x0a\x00"
+    assert payload == b"\x02\x02\x00\x00\x00\x09\x00\x00\x00\x00\x0a"
+    assert parse_food_reference_list(payload) == tuple(entries)
 
 
 def test_delete_common_foods_uses_dc_split_for_protocol_113() -> None:
     frame = build_delete_common_foods_frame([FoodReference(food_id=1, food_index=0)])
     verify_frame(frame)
     assert frame[-2] == CMD_ALT_DELETE
-    assert reassemble_split_data_frames([frame]) == b"\x01\x00\x00\x00\x01\x00"
+    assert reassemble_split_data_frames([frame]) == b"\x01\x00\x00\x00\x00\x01"
 
 
 def test_empty_logical_payload_still_emits_one_split_frame() -> None:

@@ -254,8 +254,8 @@ class FoodInfo:
     """
     One food entry from an ``ICFoodInfo`` voice selection (SDK map shape).
 
-    Populated when the ``0xAF`` wire layout is known; until then see
-    :class:`FoodInfoNotify` which carries ``raw_payload`` only.
+    One ASR hit from notify ``0xAF``. ``food_index`` is the on-scale slot
+    (native writes it before ``foodId``).
     """
 
     food_id: int
@@ -267,8 +267,8 @@ class FoodInfoNotify:
     """
     Raw ``ICFoodInfo`` notify (``0xAF``) plus decoded fields when available.
 
-    Mirrors the Java map from ``libICBleProtocol.so`` via
-    ``ICKitchenScaleGeneralWorker``: ``count``, ``foods``, and ``raw_payload``.
+    Mirrors the Java map from ``libICBleProtocol.so``:
+    ``count``, ``foods[{foodId, foodIndex}]``, and ``raw_payload``.
     """
 
     raw_type: int

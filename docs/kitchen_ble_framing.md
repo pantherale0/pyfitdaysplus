@@ -97,19 +97,45 @@ chunking.
 
 ## 216 / D8 or 220 / DC — delete common foods
 
-Layout **provisional**:
+Native `encodeDeleteFood` (kitchen 42) for **both** opcodes:
 
 ```
 WriteByte(count)
 repeat count:
-  WriteInt(foodId BE)
   WriteByte(foodIndex)
+  WriteInt(foodId BE)
 ```
 
-Protocol 113 uses **220 / DC** by default.
+Java still builds `foods[{ foodId, foodIndex }]`. Notify **`0xAF`** uses the
+same byte order. Protocol 113 sends **220 / DC** by default.
 
-## Provisional / TODO
+## 217 / D9 — file info (FFB4 prelude)
 
-- **FFB4** icon file upload path.
-- Delete payload confirmation on live HCI.
+```
+WriteByte(fileType)
+WriteByte(foodIndex)
+WriteInt(fileSize)
+WriteInt(foodId)
+WriteByte(cs)
+```
+
+Chunks on FFB4 use cmd **65440** and are not implemented here.
+
+## 219 / DB — user info (firmware ≥ 66)
+
+```
+WriteInt(time)
+WriteShort(utc_offset)
+WriteInt(userId)
+WriteByte(rnis_count)
+repeat:
+  WriteByte(type)
+  Write3Byte(cur_rni × 10)
+  Write3Byte(max_rni × 10)
+  WriteShort(progress)
+```
+
+## Remaining
+
+- FFB4 icon file upload path after D9.
 - D7 indexed split capture not yet verified independently.

@@ -8,7 +8,7 @@ import pytest
 
 from pyfitdaysplus.device import Device
 from pyfitdaysplus.events import Event
-from pyfitdaysplus.models import DeviceFunction
+from pyfitdaysplus.models import DeviceFunction, FoodInfo
 from pyfitdaysplus.protocol.constants import NOTIFY_FOOD_INFO
 
 
@@ -35,7 +35,7 @@ async def test_device_dispatches_food_and_capability_notifications() -> None:
 @pytest.mark.asyncio
 async def test_food_selections_iterator_receives_notify() -> None:
     device = Device("78:66:A5:D3:47:1E", name="MY_SCALE")
-    payload = bytes([0xAF, 0x01, 0x2C, 0x00, 0x05])
+    payload = bytes([0xAF, 0x01, 0x2C, 0x00, 0x10, 0x20, 0x30])
 
     async def send_food() -> None:
         await device._dispatch_notification(payload)
@@ -46,5 +46,5 @@ async def test_food_selections_iterator_receives_notify() -> None:
 
     assert notify.raw_type == NOTIFY_FOOD_INFO
     assert notify.raw_payload == payload
-    assert notify.foods == ()
-    assert notify.count is None
+    assert notify.foods == (FoodInfo(food_id=0x00102030, food_index=0x2C),)
+    assert notify.count == 1

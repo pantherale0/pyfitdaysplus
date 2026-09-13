@@ -78,7 +78,7 @@ async def test_async_get_weight_uses_cache_without_waiting() -> None:
 @pytest.mark.asyncio
 async def test_food_cache_and_subscribe() -> None:
     device = Device("78:66:A5:D3:47:1E", name="MY_SCALE")
-    payload = bytes([0xAF, 0x01, 0x2C, 0x00, 0x05])
+    payload = bytes([0xAF, 0x01, 0x2C, 0x00, 0x10, 0x20, 0x30])
     notifies: list[bytes] = []
 
     device.subscribe(Event.FOOD, lambda notify: notifies.append(notify.raw_payload))

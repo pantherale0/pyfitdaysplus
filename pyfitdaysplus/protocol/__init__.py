@@ -27,6 +27,7 @@ from .constants import (
 )
 from .food_decode import (
     parse_common_food_body,
+    parse_food_reference_list,
     reassemble_split_data_frames,
 )
 from .food_write import (
@@ -107,6 +108,7 @@ __all__ = [
     "nutrition_fact_type_from_ordinal",
     "parse_common_food_body",
     "parse_food_info_notify",
+    "parse_food_reference_list",
     "parse_fun_info",
     "parse_history_weight_records",
     "parse_state_ack",

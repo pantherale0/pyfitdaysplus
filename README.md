@@ -124,8 +124,8 @@ uv run python examples/listen_voice.py --name MY_SCALE
 - `await device.tare()`
 - `await device.confirm()` — D2 type 10 (app “confirm food”; the hardware ✓ is `Event.TICK`)
 - `await device.set_unit(Unit.G)` (also `ML`, `LB`, `OZ`, …)
-- `await device.read_food_selection()` → `FoodInfoNotify` with `raw_payload`
-- `async for notify in device.food_selections():` — decode `notify.foods` when wire map exists
+- `await device.read_food_selection()` → `FoodInfoNotify` with `count` / `foods`
+- `async for notify in device.food_selections():` — `notify.foods` is `foodId` + `food_index`
 - `await device.set_nutrition(food_id, facts)` — cmd **213 / D5**
 - `await device.set_common_food(food)` — cmd **214 / D6** (split when long)
 - `await device.set_common_food_indexed(food_index, food)` — cmd **215 / D7**
@@ -150,9 +150,9 @@ The **KG2458ULB-D** microphone runs offline AI food recognition locally (wake
 - `foods`: list of `{ foodId, foodIndex }`
 - empty when `count == 0`
 
-Java never sees raw offsets. This library recognizes **`0xAF`**, preserves
-**`raw_payload`**, and leaves **`count` / `foods` empty** until the wire layout
-is verified.
+Java never sees raw offsets. This library unwraps splitData the same way and
+fills **`count` / `foods`**. Native packing is ``count u8`` then
+``foodIndex u8 | foodId u32 BE`` per hit (identical to delete D8/DC).
 
 ```python
 from pyfitdaysplus import Event, KitchenScaleClient, parse_food_info_notify
@@ -217,10 +217,9 @@ async with device:
 
 D5 native ×10 (150 kcal → wire 1500); D6/D7 default ×100; pass `scale=1.0` for raw integers.
 
-**Provisional / TODO**
+**Still stubbed**
 
-- **Delete payload** layout (`count | foodId | foodIndex`) is provisional.
-- **FFB4** icon file upload remains stubbed (inline `icon` bytes only).
+- **FFB4** icon file upload (D9 metadata is known; chunks cmd 65440 not sent).
 - D6 reassembled layout: `foodId u32 | name | icon | weight u16 | fact_count | facts`
 - splitData per chunk: `total_len u16 | seq u8 | slice` (see `docs/kitchen_ble_framing.md`)
 
@@ -236,26 +235,39 @@ Verified TX vectors for `device_type=0x42`:
 | `read_history` (212 / D4) | `ac42000000d4d4` |
 | `tare` (210 / D2, type 0) | built via setting path |
 
-Live weight arrives on notify type **`0xA6`** (`ICKitchenScaleData`). The Fitdays app exposes weight field `b` in **milligrams** (163000 → 163.0 g).
+Live weight arrives on notify type **`0xA6`** (`ICKitchenScaleData`). 14-byte
+splitData body:
 
-Voice food selection uses notify **`0xAF`** (`ICFoodInfo`). Decoded Java shape:
-`count` + `foods[{ foodId, foodIndex }]`. **BLE byte packing is unknown** in v1;
-use `FoodInfoNotify.raw_payload`.
+| Offset | Field |
+| --- | --- |
+| 0 | flags: `0x80` unstable/negative, `0x40` tare; idle frames also set `0x01` |
+| 1 | unit ordinal in the high nibble (`unit << 4`) |
+| 2–4 | milligrams u24 BE (Fitdays field `b`) |
+| 5–8 | `foodId` u32 BE (firmware catalog; 0 when idle) |
+| 9–12 | `userId` u32 BE |
+| 13 | `isOk` (front-panel ✓ does **not** set this on KG2458; use history `0xAC`) |
+
+Voice food selection uses notify **`0xAF`** (`ICFoodInfo`):
+`count u8 | (foodIndex u8 + foodId u32 BE)…`. Java maps still use
+`foods[{ foodId, foodIndex }]`.
+
+User info for firmware ≥ 66 is cmd **219 / DB**: `time u32`, `utc_offset u16`,
+`userId u32`, `rnis` count, then each `{ type u8, cur_rni u24 ×10, max_rni u24 ×10, progress u16 }`. Older firmware uses cmd **208** without the `rnis` list.
+
+File-info cmd **217 / D9** (before FFB4): `fileType u8`, `foodIndex u8`,
+`fileSize u32`, `foodId u32`, `cs u8`.
 
 ## Known unknowns
 
-- Full **`0xA6`** notify field map (data[0] bit ``0x80`` = unstable; data[1]
-  high nibble = unit ordinal; data[2:5] = milligrams u24 BE)
-- **`0xAF` BLE payload packing** for `count` / `foods[{ foodId, foodIndex }]` (native decode only today)
-- Remaining unused ``funInfo`` bytes after the 32-bit flag word (precisions / historyCount)
-- Whether voice language selection has a documented BLE setting command
-- No wire evidence for **“Hello Vita”** wake triggering or **audio/PCM** streaming over GATT
-- Nutrition u24 values default to **×100** scale (live D6 verified); override with `scale=`
-- Delete-common-food wire layout is **provisional**; protocol 113 prefers cmd **220 / DC**
-- **FFB4** icon file transfer is not implemented (inline icon bytes in D6/D7 only)
-- Legacy protocols **110/111** are not wired yet (stubs only via shared models)
-- BLE **advertisement manufacturer data** layout for model detection
-- Optional **`0xDB` user_info_rnis** payload details for firmware ≥ specific versions
+- Remaining ``funInfo`` (`0xA0`) precision bytes after the flag u32 (`divG` /
+  `divOZ` / `maxG` / liquid units). Flags + battery percent (offset 15) are parsed
+- No kitchen BLE **voice-language** command; `ICDeviceFunctionVoiceLanguage` is
+  bit 4 and is **clear** on live KG2458 (`0x00fc4f02`). Other SKUs use body-scale
+  sound-mode UI
+- **“Hello Vita”** ASR is on-device only; no GATT PCM/audio stream in the SDK
+- **FFB4** file chunks after D9 are not implemented (inline D6/D7 `icon` only)
+- Legacy protocols **110/111** (stubs only via shared models)
+- BLE **advertisement manufacturer data** (scan matches `local_name` only)
 
 ## Development
 

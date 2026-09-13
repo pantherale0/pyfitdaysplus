@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 from ..exceptions import ProtocolError
-from ..models import CommonFood, NutritionFact
+from ..models import CommonFood, FoodReference, NutritionFact
 from .constants import DEFAULT_NUTRITION_SCALE, SPLIT_DATA_HEADER_LEN
 from .nutrition import nutrition_fact_type_from_ordinal
 
@@ -83,6 +83,34 @@ def reassemble_split_data_frames(frames: Sequence[bytes]) -> bytes:
         msg = f"splitData reassembly length {len(reassembled)} != total_len {total_len}"
         raise ProtocolError(msg)
     return reassembled
+
+
+def parse_food_reference_list(data: bytes) -> tuple[FoodReference, ...]:
+    """
+    Parse ``count u8 | (foodIndex u8 + foodId u32 BE)…``.
+
+    Native kitchen 42 ``encodeDeleteFood_D8`` / ``encodeDeleteFood_DC`` and
+    ``decodeuploadCommonFoodList_AF`` use this order (Java maps still expose
+    ``foodId`` then ``foodIndex``).
+    """
+    if not data:
+        msg = "food-reference list is empty"
+        raise ProtocolError(msg)
+    count = data[0]
+    offset = 1
+    entries: list[FoodReference] = []
+    for index in range(count):
+        if offset + 5 > len(data):
+            msg = (
+                f"food-reference count={count} truncated at entry {index} "
+                f"({len(data) - offset} bytes left)"
+            )
+            raise ProtocolError(msg)
+        food_index = data[offset]
+        food_id = int.from_bytes(data[offset + 1 : offset + 5], "big")
+        offset += 5
+        entries.append(FoodReference(food_id=food_id, food_index=food_index))
+    return tuple(entries)
 
 
 def parse_common_food_body(body: bytes) -> ParsedCommonFood:

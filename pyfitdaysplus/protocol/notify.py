@@ -9,6 +9,7 @@ from ..models import (
     CompatibilityFlag,
     DeviceCapabilities,
     DeviceFunction,
+    FoodInfo,
     FoodInfoNotify,
     Unit,
     WeightReading,
@@ -23,6 +24,7 @@ from .constants import (
     NOTIFY_STATE_ACK,
     SPLIT_DATA_HEADER_LEN,
 )
+from .food_decode import parse_food_reference_list
 from .framing import decode_notify_payload
 
 
@@ -177,10 +179,12 @@ def parse_fun_info(payload: bytes) -> DeviceCapabilities:
     """
     Parse a ``funInfo`` (0xA0) notification for device capability bits.
 
-    Live notifies wrap ``0xA0`` as the General/V2 command byte. The vendor SDK
-    exposes voice features via ``ICDeviceFunctionVoiceAssistant`` and
-    ``ICDeviceFunctionVoiceLanguage``; bit semantics of ``function_flags`` are
-    still provisional.
+    Live notifies wrap ``0xA0`` as the General/V2 command byte. Native
+    ``decodedeviceInfoData`` treats the first u32 as packed capability bits
+    (``ICDeviceFunction`` indexes, including VoiceLanguage at bit 4) and later
+    bytes as unit precisions (``divG`` / ``divOZ`` / …), ``batteryType``, and
+    ``battery``. This helper keeps the u32 as ``function_flags`` and reads
+    charge at offset 15.
     """
     notify_type, body = decode_notify_payload(payload)
     if notify_type != NOTIFY_FUN_INFO:
@@ -225,22 +229,27 @@ def _battery_from_fun_info(data: bytes) -> BatteryInfo | None:
 
 def parse_food_info_notify(payload: bytes) -> FoodInfoNotify:
     """
-    Recognize ``ICFoodInfo`` (notify ``0xAF`` / 175) and preserve raw bytes.
+    Parse ``ICFoodInfo`` (notify ``0xAF`` / 175).
 
-    Fitdays+ decodes this notify in native code before Java sees ``count`` and
-    ``foods`` (each with ``foodId`` / ``foodIndex``). Without a verified wire
-    map, ``count`` stays ``None`` and ``foods`` is empty.
+    After optional splitData unwrap, native kitchen 42 reads
+    ``count u8`` then ``foodIndex u8`` + ``foodId u32 BE`` per entry (same
+    packing as delete D8/DC). Java still presents ``foods[{foodId, foodIndex}]``.
     """
-    notify_type, _body = decode_notify_payload(payload)
+    notify_type, body = decode_notify_payload(payload)
     if notify_type != NOTIFY_FOOD_INFO:
         msg = f"expected notify type 0x{NOTIFY_FOOD_INFO:02x}, got 0x{notify_type:02x}"
         raise ProtocolError(msg)
-
+    data = _split_data_fields(body)[1] if _looks_like_split_data(body) else body
+    entries = parse_food_reference_list(data)
+    foods = tuple(
+        FoodInfo(food_id=entry.food_id, food_index=entry.food_index)
+        for entry in entries
+    )
     return FoodInfoNotify(
         raw_type=notify_type,
         raw_payload=bytes(payload),
-        count=None,
-        foods=(),
+        count=len(foods),
+        foods=foods,
     )
 
 
