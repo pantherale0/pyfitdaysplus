@@ -86,7 +86,7 @@ class Device:
         self._notify_task: asyncio.Task[None] | None = None
         self._readings: asyncio.Queue[WeightReading] = asyncio.Queue()
         self._food_selections: asyncio.Queue[FoodInfoNotify] = asyncio.Queue()
-        self._tick_held = False
+        self._on_device_confirm_held = False
         self.info = ScaleInfo(
             model=self._config.model,
             ble_name=name,
@@ -175,7 +175,7 @@ class Device:
             self._notify_task = None
         self._fun_info_event.clear()
         self._capabilities = None
-        self._tick_held = False
+        self._on_device_confirm_held = False
         await self._transport.disconnect()
 
     async def tare(self) -> None:
@@ -185,7 +185,11 @@ class Device:
         )
 
     async def confirm(self) -> None:
-        """Tell the scale the current food/weight was accepted (D2 type 10)."""
+        """
+        App confirm over BLE (D2 type 10).
+
+        Front-panel ✓ is ``Event.ON_DEVICE_CONFIRM``.
+        """
         await self._write_setting(
             build_setting_confirm(device_type=self._config.device_type)
         )
@@ -258,7 +262,7 @@ class Device:
 
         Recommended before food-weigh mode: upload facts, then weigh, then
         listen for ✓. Call again after each confirm; the scale only reports
-        one tick per upload. LCD may still show a firmware catalog name;
+        one on-device confirm per upload. LCD may still show a firmware catalog name;
         the values you pass here are the ones to trust.
         """
         frames = build_set_nutrition_frames(
@@ -348,7 +352,7 @@ class Device:
     @overload
     def subscribe(
         self,
-        event: Literal[Event.TICK],
+        event: Literal[Event.ON_DEVICE_CONFIRM],
         handler: Callable[[WeightReading], None],
     ) -> Unsubscribe: ...
 
@@ -377,10 +381,10 @@ class Device:
         """
         Subscribe to ``event``; returns an unsubscribe callable.
 
-        ``Event.TICK`` is the hardware ✓ after a food upload (history ``0xAC``
-        on KG2458). The scale emits it **once per food upload** — call
-        :meth:`set_nutrition` / :meth:`set_common_food` again before the next
-        weigh-and-confirm.
+        ``Event.ON_DEVICE_CONFIRM`` is the front-panel ✓ after a food upload
+        (history ``0xAC`` on KG2458). The scale emits it **once per food
+        upload** — call :meth:`set_nutrition` / :meth:`set_common_food` again
+        before the next weigh-and-confirm.
         """
         return self._events.subscribe(event, handler)
 
@@ -498,11 +502,11 @@ class Device:
                 reading.food_id,
                 reading.raw_payload.hex(),
             )
-            self._events.emit(Event.TICK, reading)
+            self._events.emit(Event.ON_DEVICE_CONFIRM, reading)
 
     async def _handle_weight(self, payload: bytes) -> None:
         try:
-            reading, tick = parse_weight_event(payload)
+            reading, is_ok = parse_weight_event(payload)
         except ProtocolError as exc:
             _LOGGER.debug(
                 "ignored weight notify: %s payload=%s",
@@ -517,10 +521,10 @@ class Device:
                 previous.unit.name,
                 reading.unit.name,
             )
-        if tick and not self._tick_held:
-            _LOGGER.info("tick on scale")
-            self._events.emit(Event.TICK, reading)
-        self._tick_held = tick
+        if is_ok and not self._on_device_confirm_held:
+            _LOGGER.info("on-device confirm (A6 isOk)")
+            self._events.emit(Event.ON_DEVICE_CONFIRM, reading)
+        self._on_device_confirm_held = is_ok
         _LOGGER.info(
             "weight %.4g %s stable=%s tare=%s unit=%s food=%s",
             reading.value,

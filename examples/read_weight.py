@@ -43,7 +43,7 @@ async def main() -> int:
     parser.add_argument(
         "--send-food",
         action="store_true",
-        help="Upload a food (D6+D5) before weigh/✓; re-upload after each tick",
+        help="Upload food (D6+D5) before weigh/✓; re-upload after each confirm",
     )
     parser.add_argument("--food-id", type=int, default=42)
     parser.add_argument("--food-name", default="oats")
@@ -94,20 +94,20 @@ async def main() -> int:
                 f"food={reading.food_id}"
             )
 
-        def on_tick(reading: WeightReading) -> None:
+        def on_device_confirm(reading: WeightReading) -> None:
             print(
-                f"tick {reading.value:.2f} {reading.unit.symbol}  "
+                f"on-device confirm {reading.value:.2f} {reading.unit.symbol}  "
                 f"food={reading.food_id}  "
                 "(re-upload food before the next ✓)"
             )
 
         stop_weight = device.subscribe(Event.WEIGHT, on_weight)
-        stop_tick = device.subscribe(Event.TICK, on_tick)
+        stop_confirm = device.subscribe(Event.ON_DEVICE_CONFIRM, on_device_confirm)
         try:
             await asyncio.sleep(args.seconds)
         finally:
             stop_weight()
-            stop_tick()
+            stop_confirm()
     return 0
 
 

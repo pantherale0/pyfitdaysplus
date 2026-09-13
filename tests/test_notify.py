@@ -66,25 +66,25 @@ def test_parse_live_a6_frame_unstable_flag() -> None:
     assert reading.stable is False
 
 
-def test_parse_live_a6_tick_is_not_on_reading() -> None:
+def test_parse_live_a6_is_ok_is_not_on_reading() -> None:
     idle = parse_weight_notification(LIVE_A6_IDLE)
     assert idle.is_tare is False
     assert idle.is_negative is False
-    _reading, tick = parse_weight_event(LIVE_A6_IDLE)
-    assert tick is False
+    _reading, is_ok = parse_weight_event(LIVE_A6_IDLE)
+    assert is_ok is False
     negative = parse_weight_notification(LIVE_A6_UNSTABLE)
     assert negative.is_negative is True
-    _reading, tick = parse_weight_event(LIVE_A6_UNSTABLE)
-    assert tick is False
+    _reading, is_ok = parse_weight_event(LIVE_A6_UNSTABLE)
+    assert is_ok is False
 
 
-def test_parse_a6_tick_pressed() -> None:
+def test_parse_a6_is_ok_set() -> None:
     data = bytearray(14)
     data[13] = 1
     body = (14).to_bytes(2, "big") + b"\x00" + bytes(data)
     payload = encode_frame(0xA6, body)
-    reading, tick = parse_weight_event(payload)
-    assert tick is True
+    reading, is_ok = parse_weight_event(payload)
+    assert is_ok is True
     assert reading.milligrams == 0
 
 

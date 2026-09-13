@@ -39,15 +39,16 @@ def parse_weight_notification(payload: bytes) -> WeightReading:
     Data byte 1 stores the ``ICKitchenScale`` unit ordinal in the high nibble
     (``unit << 4``); a raw 0-7 ordinal is still accepted for compact test
     vectors. Compact ``A6 | mg u24 | unit | stable`` payloads are still
-    accepted. Byte 0 bit ``0x40`` is tare. Split-data byte 13 is the
-    momentary tick (``isOk``); that is not stored on :class:`WeightReading`.
+    accepted. Byte 0 bit ``0x40`` is tare. Split-data byte 13 is native
+    ``isOk``; that is not stored on :class:`WeightReading`. On KG2458 the
+    front-panel ✓ is history ``0xAC`` / ``Event.ON_DEVICE_CONFIRM``.
     """
-    reading, _tick = parse_weight_event(payload)
+    reading, _is_ok = parse_weight_event(payload)
     return reading
 
 
 def parse_weight_event(payload: bytes) -> tuple[WeightReading, bool]:
-    """Parse an ``A6`` notify into a reading and whether the tick is down."""
+    """Parse an ``A6`` notify into a reading and whether native ``isOk`` is set."""
     notify_type, body = decode_notify_payload(payload)
     if notify_type != NOTIFY_KITCHEN_SCALE_DATA:
         msg = (
@@ -55,7 +56,7 @@ def parse_weight_event(payload: bytes) -> tuple[WeightReading, bool]:
             f"got 0x{notify_type:02x}"
         )
         raise ProtocolError(msg)
-    tick = False
+    is_ok = False
     if _looks_like_split_data(body):
         data = _split_data_fields(body)[1]
         if len(data) < 5:
@@ -71,7 +72,7 @@ def parse_weight_event(payload: bytes) -> tuple[WeightReading, bool]:
         user_id = int.from_bytes(data[9:13], "big") if len(data) >= 13 else 0
         # Native reads ``isOk`` after flags + u32 unit/mg + two u32 fields:
         # 1+4+4+4 = 13, so index 13.
-        tick = len(data) > 13 and data[13] != 0
+        is_ok = len(data) > 13 and data[13] != 0
     else:
         if len(body) < 3:
             msg = f"weight notification too short: {len(body) + 1} bytes"
@@ -94,7 +95,7 @@ def parse_weight_event(payload: bytes) -> tuple[WeightReading, bool]:
         food_id=food_id,
         user_id=user_id,
     )
-    return reading, tick
+    return reading, is_ok
 
 
 _HISTORY_RECORD_LEN = 16

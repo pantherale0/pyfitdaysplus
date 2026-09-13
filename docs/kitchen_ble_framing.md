@@ -6,7 +6,7 @@ This document covers **writing custom food + nutrition to the scale** (app → d
 
 **Recommended session:** `set_common_food` and/or `set_nutrition` **first**, then
 weigh, then ✓. Repeat the upload before the next confirm. KG2458 emits one
-history ``0xAC`` tick per upload. LCD names may stay firmware catalog
+history ``0xAC`` on-device confirm per upload. LCD names may stay firmware catalog
 (USDA-style); trust the facts you sent.
 
 ## Command summary (protocol 113 / KG2458ULB-D)

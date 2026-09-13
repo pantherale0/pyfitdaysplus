@@ -79,18 +79,18 @@ def on_weight(reading):
 unsubscribe = device.subscribe(Event.WEIGHT, on_weight)
 
 
-def on_tick(reading):
-    print(f"tick {reading.grams:.1f} g")
+def on_device_confirm(reading):
+    print(f"on-device confirm {reading.grams:.1f} g")
 
 
-unsubscribe_tick = device.subscribe(Event.TICK, on_tick)
+unsubscribe_confirm = device.subscribe(Event.ON_DEVICE_CONFIRM, on_device_confirm)
 
 # From sync code (e.g. a UI timer or callback):
 reading = device.weight
 grams = None if reading is None else reading.grams
 
 unsubscribe()  # stop receiving callbacks
-unsubscribe_tick()
+unsubscribe_confirm()
 ```
 
 Example scripts (shared `--name` / `--address` / `-v`):
@@ -118,11 +118,11 @@ uv run python examples/listen_voice.py --name MY_SCALE
 - `device.weight` / `device.battery` / `device.food` / `device.ack` — sync caches
 - `await device.async_get_weight()` — cached reading, or wait for the first notify
 - `device.subscribe(Event.WEIGHT, callback)` — event callbacks (returns unsubscribe)
-- `device.subscribe(Event.TICK, callback)` — hardware ✓ after a food upload (`0xAC` on KG2458; **one confirm per upload**)
+- `device.subscribe(Event.ON_DEVICE_CONFIRM, callback)` — front-panel ✓ after a food upload (`0xAC` on KG2458; **one confirm per upload**)
 - `device.subscribe(Event.FOOD, callback)` / `subscribe(Event.CAPABILITIES, …)` / `subscribe(Event.BATTERY, …)`
 - `async for reading in device.weights(): ...`
 - `await device.tare()`
-- `await device.confirm()` — D2 type 10 (app “confirm food”; the hardware ✓ is `Event.TICK`)
+- `await device.confirm()` — D2 type 10 (app “confirm food”; the front-panel ✓ is `Event.ON_DEVICE_CONFIRM`)
 - `await device.set_unit(Unit.G)` (also `ML`, `LB`, `OZ`, …)
 - `await device.read_food_selection()` → `FoodInfoNotify` with `count` / `foods`
 - `async for notify in device.food_selections():` — `notify.foods` is `foodId` + `food_index`
@@ -182,8 +182,8 @@ We do **not** stream audio or inject the **“Hello Vita”** wake phrase over B
 that **before** each ✓. The scale’s LCD may still show a firmware catalog
 name (live KG2458 used USDA-style ids, e.g. 1077 → “MILK WHOLE”). Trust the
 macros you just sent, not the onboard US table. After ✓ the scale saves
-once (`Event.TICK` / history ``0xAC``) and will not tick again until
-you upload another food.
+once (`Event.ON_DEVICE_CONFIRM` / history ``0xAC``) and will not confirm
+again until you upload another food.
 
 ```python
 from pyfitdaysplus import CommonFood, Event, NutritionFact, NutritionFactType
@@ -196,15 +196,15 @@ food = CommonFood(
 )
 
 
-def on_tick(reading):
+def on_device_confirm(reading):
     print(reading.grams, reading.food_id)
 
 
 async with device:
-    device.subscribe(Event.TICK, on_tick)
+    device.subscribe(Event.ON_DEVICE_CONFIRM, on_device_confirm)
     await device.set_common_food(food)
     await device.set_nutrition(food.food_id, list(food.facts))
-    # weigh, press ✓ → on_tick once
+    # weigh, press ✓ → on_device_confirm once
     # upload again before the next ✓
 ```
 
@@ -245,7 +245,7 @@ splitData body:
 | 2–4 | milligrams u24 BE (Fitdays field `b`) |
 | 5–8 | `foodId` u32 BE (firmware catalog; 0 when idle) |
 | 9–12 | `userId` u32 BE |
-| 13 | `isOk` (front-panel ✓ does **not** set this on KG2458; use history `0xAC`) |
+| 13 | `isOk` (front-panel ✓ does **not** set this on KG2458; use `Event.ON_DEVICE_CONFIRM` / history `0xAC`) |
 
 Voice food selection uses notify **`0xAF`** (`ICFoodInfo`):
 `count u8 | (foodIndex u8 + foodId u32 BE)…`. Java maps still use

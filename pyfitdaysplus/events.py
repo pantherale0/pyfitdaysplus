@@ -13,7 +13,7 @@ class Event(str, Enum):
     """Notification kinds that :class:`~pyfitdaysplus.device.Device` can emit."""
 
     WEIGHT = "weight"
-    TICK = "tick"
+    ON_DEVICE_CONFIRM = "on_device_confirm"
     FOOD = "food"
     CAPABILITIES = "capabilities"
     BATTERY = "battery"

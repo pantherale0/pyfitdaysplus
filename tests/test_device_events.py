@@ -184,45 +184,45 @@ async def test_unit_change_is_logged(caplog: pytest.LogCaptureFixture) -> None:
     assert device.weight.unit is Unit.OZ
 
 
-def _a6_frame(*, milligrams: int = 1000, tick: bool = False) -> bytes:
+def _a6_frame(*, milligrams: int = 1000, is_ok: bool = False) -> bytes:
     data = bytearray(14)
     data[1] = int(Unit.G) << 4
     data[2:5] = milligrams.to_bytes(3, "big")
-    if tick:
+    if is_ok:
         data[13] = 1
     return encode_frame(0xA6, (14).to_bytes(2, "big") + b"\x00" + bytes(data))
 
 
 @pytest.mark.asyncio
-async def test_subscribe_tick_fires_once_per_press() -> None:
+async def test_subscribe_on_device_confirm_fires_once_per_press() -> None:
     device = Device("78:66:A5:D3:47:1E", name="MY_SCALE")
-    ticks: list[int] = []
+    confirms: list[int] = []
     unsubscribe = device.subscribe(
-        Event.TICK,
-        lambda reading: ticks.append(reading.milligrams),
+        Event.ON_DEVICE_CONFIRM,
+        lambda reading: confirms.append(reading.milligrams),
     )
 
     await device._dispatch_notification(_a6_frame(milligrams=250_000))
-    await device._dispatch_notification(_a6_frame(milligrams=250_000, tick=True))
-    await device._dispatch_notification(_a6_frame(milligrams=251_000, tick=True))
+    await device._dispatch_notification(_a6_frame(milligrams=250_000, is_ok=True))
+    await device._dispatch_notification(_a6_frame(milligrams=251_000, is_ok=True))
     await device._dispatch_notification(_a6_frame(milligrams=251_000))
-    await device._dispatch_notification(_a6_frame(milligrams=252_000, tick=True))
+    await device._dispatch_notification(_a6_frame(milligrams=252_000, is_ok=True))
 
-    assert ticks == [250_000, 252_000]
+    assert confirms == [250_000, 252_000]
     unsubscribe()
     await device._dispatch_notification(_a6_frame(milligrams=253_000))
-    await device._dispatch_notification(_a6_frame(milligrams=253_000, tick=True))
-    assert ticks == [250_000, 252_000]
+    await device._dispatch_notification(_a6_frame(milligrams=253_000, is_ok=True))
+    assert confirms == [250_000, 252_000]
 
 
 @pytest.mark.asyncio
-async def test_live_ac_history_fires_tick() -> None:
+async def test_live_ac_history_fires_on_device_confirm() -> None:
     device = Device("78:66:A5:D3:47:1E", name="MY_SCALE")
-    ticks: list[tuple[int, int]] = []
+    confirms: list[tuple[int, int]] = []
     device.subscribe(
-        Event.TICK,
-        lambda reading: ticks.append((reading.milligrams, reading.food_id)),
+        Event.ON_DEVICE_CONFIRM,
+        lambda reading: confirms.append((reading.milligrams, reading.food_id)),
     )
     payload = bytes.fromhex("ac42001100016aa67db6000153d80000043503c389e2ac97")
     await device._dispatch_notification(payload)
-    assert ticks == [(87_000, 1077)]
+    assert confirms == [(87_000, 1077)]
