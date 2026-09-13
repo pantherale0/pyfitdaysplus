@@ -27,7 +27,7 @@ jobs:
         id: prek
         continue-on-error: true
 
-      - uses: pre-commit-ci/lite-action@v1
+      - uses: pre-commit-ci/lite-action@v1.1.0
         if: always()
         with:
           msg: "chore: auto-fix from pre-commit hooks"
