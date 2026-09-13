@@ -37,8 +37,7 @@ from pyfitdaysplus.protocol.nutrition import (
 )
 
 LIVE_D6_FRAME_0_HEX = (
-    "ac4200260005f6df81097465737420666f6f6400006405000013880100145002001518040020"
-    "d6a4"
+    "ac4200260005f6df81097465737420666f6f6400006405000013880100145002001518040020d6a4"
 )
 LIVE_D6_FRAME_1_HEX = "ac42002601d0050015e0d6c7"
 
@@ -89,9 +88,8 @@ def test_set_nutrition_frame_uses_split_header() -> None:
     assert frame[1] == DEVICE_TYPE_KG2458
     payload = frame[2:-2]
     assert payload[:3] == b"\x00\x09\x00"
-    assert reassemble_split_data_frames([frame]) == b"\x00\x00\x00\x01\x01\x09" + encode_nutrition_value_u24(
-        5
-    )
+    expected = b"\x00\x00\x00\x01\x01\x09" + encode_nutrition_value_u24(5)
+    assert reassemble_split_data_frames([frame]) == expected
 
 
 def test_live_d6_split_frames_match_locked_hci_pair() -> None:

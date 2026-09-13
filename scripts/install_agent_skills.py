@@ -16,6 +16,7 @@ CUSTOM_SKILL = PACKAGE_NAME
 
 
 def copy_custom_skill() -> None:
+    """Copy the project skill from the AG Kit staging directory."""
     source = STAGING_DIR / CUSTOM_SKILL
     if not source.is_dir():
         return
@@ -31,6 +32,7 @@ def copy_custom_skill() -> None:
 
 
 def link_skill(skill_name: str, source: Path) -> None:
+    """Expose ``source`` under ``.cursor/skills`` as a symlink or stub."""
     destination = CURSOR_SKILLS_DIR / skill_name
     destination.parent.mkdir(parents=True, exist_ok=True)
 
@@ -52,7 +54,10 @@ def link_skill(skill_name: str, source: Path) -> None:
                 [
                     "---",
                     f"name: {skill_name}",
-                    f"description: Project skill sourced from .agents/skills/{skill_name}/",
+                    (
+                        "description: Project skill sourced from "
+                        f".agents/skills/{skill_name}/"
+                    ),
                     "---",
                     "",
                     f"Read the full skill at [.agents/skills/{skill_name}/SKILL.md]"
@@ -65,6 +70,7 @@ def link_skill(skill_name: str, source: Path) -> None:
 
 
 def sync_cursor_skills() -> None:
+    """Link each agent skill into Cursor's skills directory."""
     if not SKILLS_DIR.is_dir():
         return
 
@@ -74,11 +80,13 @@ def sync_cursor_skills() -> None:
 
 
 def cleanup() -> None:
+    """Remove the temporary AG Kit staging directory if it exists."""
     if STAGING_DIR.is_dir():
         shutil.rmtree(STAGING_DIR)
 
 
 def main() -> int:
+    """Install project skills and bridge them for Cursor."""
     SKILLS_DIR.mkdir(parents=True, exist_ok=True)
     copy_custom_skill()
     sync_cursor_skills()

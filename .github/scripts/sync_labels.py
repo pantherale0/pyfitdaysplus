@@ -23,15 +23,22 @@ def github_request(
     token: str,
     body: dict[str, Any] | None = None,
 ) -> Any:
+    """Send a JSON GitHub REST request and return the decoded body, if any."""
+    parsed = urllib.parse.urlparse(url)
+    if parsed.scheme not in {"https"}:
+        msg = f"Refusing non-HTTPS URL: {url}"
+        raise ValueError(msg)
     headers = {
         "Accept": "application/vnd.github+json",
         "Authorization": f"Bearer {token}",
         "X-GitHub-Api-Version": API_VERSION,
     }
     data = json.dumps(body).encode() if body is not None else None
-    request = urllib.request.Request(url, data=data, headers=headers, method=method)
+    request = urllib.request.Request(  # noqa: S310
+        url, data=data, headers=headers, method=method
+    )
     try:
-        with urllib.request.urlopen(request) as response:
+        with urllib.request.urlopen(request) as response:  # noqa: S310
             payload = response.read().decode()
             return json.loads(payload) if payload else None
     except urllib.error.HTTPError as exc:
@@ -41,6 +48,7 @@ def github_request(
 
 
 def list_labels(owner: str, repo: str, token: str) -> dict[str, dict[str, str]]:
+    """Return existing GitHub labels keyed by name."""
     labels: dict[str, dict[str, str]] = {}
     page = 1
     while True:
@@ -60,6 +68,7 @@ def list_labels(owner: str, repo: str, token: str) -> dict[str, dict[str, str]]:
 
 
 def load_config(path: Path) -> dict[str, dict[str, str]]:
+    """Load desired labels from a TOML config file."""
     with path.open("rb") as handle:
         raw = tomllib.load(handle)
     desired: dict[str, dict[str, str]] = {}
@@ -75,6 +84,7 @@ def load_config(path: Path) -> dict[str, dict[str, str]]:
 
 
 def sync_labels(owner: str, repo: str, token: str, config_path: Path) -> None:
+    """Create or update GitHub labels so they match the local config."""
     desired = load_config(config_path)
     current = list_labels(owner, repo, token)
 
@@ -100,6 +110,7 @@ def sync_labels(owner: str, repo: str, token: str, config_path: Path) -> None:
 
 
 def main() -> None:
+    """Sync labels for ``GITHUB_REPOSITORY`` using ``GITHUB_TOKEN``."""
     repository = os.environ.get("GITHUB_REPOSITORY")
     token = os.environ.get("GITHUB_TOKEN")
     if not repository or not token:
