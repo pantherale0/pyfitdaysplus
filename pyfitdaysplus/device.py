@@ -5,14 +5,16 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator, Callable
+from dataclasses import replace
 from types import TracebackType
+from typing import Literal, overload
 
-from ._weight_accessor import CachedWeightAccessor, WeightAccessor
 from .ble.transport import BleTransport
 from .config import Config
-from .events import ListenerList
+from .events import Event, EventRegistry, Unsubscribe
 from .exceptions import NotConnectedError, ProtocolError
 from .models import (
+    DISCOVERED_COMPATIBILITY,
     BatteryInfo,
     CommandAck,
     CommonFood,
@@ -35,7 +37,6 @@ from .protocol.commands import (
 )
 from .protocol.constants import (
     CHAR_FILE_WRITE_UUID,
-    DEVICE_TYPE_KG2458,
     DFU_SERVICE_UUID,
     NOTIFY_FOOD_INFO,
     NOTIFY_FUN_INFO,
@@ -60,16 +61,10 @@ from .protocol.notify import (
     parse_weight_event,
 )
 
-FoodSelectionHandler = Callable[[FoodInfoNotify], None]
-CapabilitiesHandler = Callable[[DeviceCapabilities], None]
-WeightHandler = Callable[[WeightReading], None]
-TickHandler = Callable[[WeightReading], None]
-Unsubscribe = Callable[[], None]
-
 _LOGGER = logging.getLogger(__name__)
 
 
-class KitchenScaleDevice:
+class Device:
     """One connected ICOMON / Fitdays+ kitchen scale."""
 
     def __init__(
@@ -79,44 +74,25 @@ class KitchenScaleDevice:
         name: str,
         config: Config | None = None,
         transport: BleTransport | None = None,
-        on_food_selection: FoodSelectionHandler | None = None,
-        on_capabilities: CapabilitiesHandler | None = None,
-        on_food_info: FoodSelectionHandler | None = None,
-        on_weight: WeightHandler | None = None,
-        on_tick: TickHandler | None = None,
     ) -> None:
         self._config = config or Config(address=address, ble_name=name)
         self._transport = transport or BleTransport(address)
-        self._latest_weight: WeightReading | None = None
-        self._latest_food_selection: FoodInfoNotify | None = None
-        self._latest_ack: CommandAck | None = None
+        self._weight: WeightReading | None = None
+        self._food: FoodInfoNotify | None = None
+        self._ack: CommandAck | None = None
         self._capabilities: DeviceCapabilities | None = None
+        self._events = EventRegistry()
         self._fun_info_event = asyncio.Event()
         self._notify_task: asyncio.Task[None] | None = None
         self._readings: asyncio.Queue[WeightReading] = asyncio.Queue()
         self._food_selections: asyncio.Queue[FoodInfoNotify] = asyncio.Queue()
-        self._weight_listeners: ListenerList[WeightReading] = ListenerList()
-        self._tick_listeners: ListenerList[WeightReading] = ListenerList()
-        self._food_selection_listeners: ListenerList[FoodInfoNotify] = ListenerList()
-        self._capabilities_listeners: ListenerList[DeviceCapabilities] = ListenerList()
         self._tick_held = False
-        self._cached_weight = CachedWeightAccessor(self)
-        if on_weight is not None:
-            self._weight_listeners.subscribe(on_weight)
-        if on_tick is not None:
-            self._tick_listeners.subscribe(on_tick)
-        if on_food_selection is not None:
-            self._food_selection_listeners.subscribe(on_food_selection)
-        elif on_food_info is not None:
-            self._food_selection_listeners.subscribe(on_food_info)
-        if on_capabilities is not None:
-            self._capabilities_listeners.subscribe(on_capabilities)
         self.info = ScaleInfo(
             model=self._config.model,
             ble_name=name,
             address=address,
             device_type=self._config.device_type,
-            protocol=_protocol_for_device_type(self._config.device_type),
+            protocol=ProtocolVersion.GENERAL_V2_113,
         )
 
     @property
@@ -130,40 +106,25 @@ class KitchenScaleDevice:
         return self._capabilities
 
     @property
-    def latest_battery(self) -> BatteryInfo | None:
+    def battery(self) -> BatteryInfo | None:
         """Charge from the last ``funInfo`` (``0xA0``) notify, if present."""
         caps = self._capabilities
         return None if caps is None else caps.battery
 
     @property
-    def latest_weight(self) -> WeightReading | None:
-        """Latest cached weight reading from notify ``0xA6``, updated on each event."""
-        return self._latest_weight
+    def weight(self) -> WeightReading | None:
+        """Latest cached weight reading from notify ``0xA6``, if any."""
+        return self._weight
 
     @property
-    def latest_ack(self) -> CommandAck | None:
+    def ack(self) -> CommandAck | None:
         """Latest ``0xA1`` command acknowledgement, if any."""
-        return self._latest_ack
+        return self._ack
 
     @property
-    def latest_food_selection(self) -> FoodInfoNotify | None:
+    def food(self) -> FoodInfoNotify | None:
         """Latest cached ``ICFoodInfo`` notify (``0xAF``), if any."""
-        return self._latest_food_selection
-
-    @property
-    def cached_weight(self) -> CachedWeightAccessor:
-        """
-        Sync view of the weight cache.
-
-        Use ``device.cached_weight.grams`` from non-async code; returns ``None``
-        until the first weight notification arrives.
-        """
-        return self._cached_weight
-
-    @property
-    def weight(self) -> WeightAccessor:
-        """Awaitable latest reading: ``reading = await device.weight``."""
-        return WeightAccessor(self)
+        return self._food
 
     async def connect(self) -> None:
         """Connect, subscribe to notifications, and send the app handshake."""
@@ -243,7 +204,7 @@ class KitchenScaleDevice:
         discovered from the current session's service table.
         """
         extra = CompatibilityFlag(0)
-        if self._latest_weight is not None:
+        if self._weight is not None:
             extra |= CompatibilityFlag.WEIGHT
         if self._transport.has_characteristic(CHAR_FILE_WRITE_UUID):
             extra |= CompatibilityFlag.FILE_TRANSFER
@@ -256,7 +217,7 @@ class KitchenScaleDevice:
                 compatibility=extra,
             )
         else:
-            caps = caps.with_discovered(extra)
+            caps = _merge_compatibility(caps, extra)
         if caps is not self._capabilities:
             _LOGGER.info(
                 "compatibility=%s flags=0x%08x",
@@ -264,7 +225,7 @@ class KitchenScaleDevice:
                 int(caps.compatibility),
             )
             self._capabilities = caps
-            self._capabilities_listeners.emit(caps)
+            self._events.emit(Event.CAPABILITIES, caps)
         return caps
 
     def _merge_discovered(self, extra: CompatibilityFlag) -> None:
@@ -278,12 +239,12 @@ class KitchenScaleDevice:
                 compatibility=extra,
             )
         else:
-            updated = caps.with_discovered(extra)
+            updated = _merge_compatibility(caps, extra)
             if updated is caps:
                 return
             caps = updated
         self._capabilities = caps
-        self._capabilities_listeners.emit(caps)
+        self._events.emit(Event.CAPABILITIES, caps)
 
     async def set_nutrition(
         self,
@@ -293,7 +254,7 @@ class KitchenScaleDevice:
         scale: float | None = None,
     ) -> None:
         """
-        Send nutrition facts for ``food_id`` (cmd **213 / 0xD5**, native ×10).
+        Send nutrition facts for ``food_id`` (cmd **213 / 0xD5**, native x10).
 
         Recommended before food-weigh mode: upload facts, then weigh, then
         listen for ✓. Call again after each confirm; the scale only reports
@@ -366,71 +327,62 @@ class KitchenScaleDevice:
         """Wait for the next live weight notification."""
         return await self._readings.get()
 
+    async def async_get_weight(self) -> WeightReading:
+        """Return the cached reading, or wait for the first live notify."""
+        cached = self._weight
+        if cached is not None:
+            return cached
+        return await self.read_weight()
+
     async def read_food_selection(self) -> FoodInfoNotify:
         """Wait for the next ``ICFoodInfo`` notify (``0xAF``) from voice ASR."""
         return await self._food_selections.get()
 
-    async def read_food_info(self) -> FoodInfoNotify:
-        """Alias for :meth:`read_food_selection`."""
-        return await self.read_food_selection()
-
-    def subscribe_weight(self, handler: WeightHandler) -> Unsubscribe:
-        """Subscribe to live weight notifications; returns an unsubscribe callable."""
-        return self._weight_listeners.subscribe(handler)
-
-    def subscribe_tick(self, handler: TickHandler) -> Unsubscribe:
-        """
-        Subscribe to hardware ✓ (food confirm).
-
-        On KG2458 this is a history ``0xAC`` notify, not A6 ``isOk``. The
-        scale emits it **once per food upload**. Call
-        :meth:`set_nutrition` / :meth:`set_common_food` again before the
-        next weigh-and-confirm. Returns an unsubscribe callable.
-        """
-        return self._tick_listeners.subscribe(handler)
-
-    def subscribe_food_selection(self, handler: FoodSelectionHandler) -> Unsubscribe:
-        """Subscribe to ``ICFoodInfo`` (``0xAF``) voice selection notifications."""
-        return self._food_selection_listeners.subscribe(handler)
-
-    def subscribe_capabilities(self, handler: CapabilitiesHandler) -> Unsubscribe:
-        """Subscribe to ``funInfo`` (``0xA0``) capability notifications."""
-        return self._capabilities_listeners.subscribe(handler)
-
-    def set_weight_handler(self, handler: WeightHandler | None) -> None:
-        """Replace weight subscribers with a single handler, or clear when ``None``."""
-        self._weight_listeners.clear()
-        if handler is not None:
-            self._weight_listeners.subscribe(handler)
-
-    def set_tick_handler(self, handler: TickHandler | None) -> None:
-        """Replace tick subscribers with a single handler, or clear when ``None``."""
-        self._tick_listeners.clear()
-        if handler is not None:
-            self._tick_listeners.subscribe(handler)
-
-    def set_food_selection_handler(
+    @overload
+    def subscribe(
         self,
-        handler: FoodSelectionHandler | None,
-    ) -> None:
+        event: Literal[Event.WEIGHT],
+        handler: Callable[[WeightReading], None],
+    ) -> Unsubscribe: ...
+
+    @overload
+    def subscribe(
+        self,
+        event: Literal[Event.TICK],
+        handler: Callable[[WeightReading], None],
+    ) -> Unsubscribe: ...
+
+    @overload
+    def subscribe(
+        self,
+        event: Literal[Event.FOOD],
+        handler: Callable[[FoodInfoNotify], None],
+    ) -> Unsubscribe: ...
+
+    @overload
+    def subscribe(
+        self,
+        event: Literal[Event.CAPABILITIES],
+        handler: Callable[[DeviceCapabilities], None],
+    ) -> Unsubscribe: ...
+
+    @overload
+    def subscribe(
+        self,
+        event: Literal[Event.BATTERY],
+        handler: Callable[[BatteryInfo], None],
+    ) -> Unsubscribe: ...
+
+    def subscribe(self, event: Event, handler: Callable[..., None]) -> Unsubscribe:
         """
-        Replace food-selection subscribers with one handler.
+        Subscribe to ``event``; returns an unsubscribe callable.
 
-        Pass ``None`` to clear all subscribers.
+        ``Event.TICK`` is the hardware ✓ after a food upload (history ``0xAC``
+        on KG2458). The scale emits it **once per food upload** — call
+        :meth:`set_nutrition` / :meth:`set_common_food` again before the next
+        weigh-and-confirm.
         """
-        self._food_selection_listeners.clear()
-        if handler is not None:
-            self._food_selection_listeners.subscribe(handler)
-
-    def set_food_info_handler(self, handler: FoodSelectionHandler | None) -> None:
-        """Alias for :meth:`set_food_selection_handler`."""
-        self.set_food_selection_handler(handler)
-
-    def set_capabilities_handler(self, handler: CapabilitiesHandler | None) -> None:
-        """Replace capability subscribers with one handler, or clear when ``None``."""
-        self._capabilities_listeners.clear()
-        if handler is not None:
-            self._capabilities_listeners.subscribe(handler)
+        return self._events.subscribe(event, handler)
 
     async def weights(self) -> AsyncIterator[WeightReading]:
         """Iterate live weight readings until disconnected."""
@@ -442,12 +394,7 @@ class KitchenScaleDevice:
         while self.connected:
             yield await self.read_food_selection()
 
-    async def food_infos(self) -> AsyncIterator[FoodInfoNotify]:
-        """Alias for :meth:`food_selections`."""
-        async for notify in self.food_selections():
-            yield notify
-
-    async def __aenter__(self) -> KitchenScaleDevice:
+    async def __aenter__(self) -> Device:
         await self.connect()
         return self
 
@@ -531,7 +478,7 @@ class KitchenScaleDevice:
             ack.state,
             ack.raw_payload.hex(),
         )
-        self._latest_ack = ack
+        self._ack = ack
 
     def _handle_history_weights(self, payload: bytes) -> None:
         try:
@@ -551,7 +498,7 @@ class KitchenScaleDevice:
                 reading.food_id,
                 reading.raw_payload.hex(),
             )
-            self._tick_listeners.emit(reading)
+            self._events.emit(Event.TICK, reading)
 
     async def _handle_weight(self, payload: bytes) -> None:
         try:
@@ -563,7 +510,7 @@ class KitchenScaleDevice:
                 payload.hex(),
             )
             return
-        previous = self._latest_weight
+        previous = self._weight
         if previous is not None and previous.unit != reading.unit:
             _LOGGER.info(
                 "unit changed %s -> %s",
@@ -572,7 +519,7 @@ class KitchenScaleDevice:
             )
         if tick and not self._tick_held:
             _LOGGER.info("tick on scale")
-            self._tick_listeners.emit(reading)
+            self._events.emit(Event.TICK, reading)
         self._tick_held = tick
         _LOGGER.info(
             "weight %.4g %s stable=%s tare=%s unit=%s food=%s",
@@ -583,8 +530,8 @@ class KitchenScaleDevice:
             reading.unit.name,
             reading.food_id,
         )
-        self._latest_weight = reading
-        self._weight_listeners.emit(reading)
+        self._weight = reading
+        self._events.emit(Event.WEIGHT, reading)
         await self._readings.put(reading)
         self._merge_discovered(CompatibilityFlag.WEIGHT)
 
@@ -604,13 +551,13 @@ class KitchenScaleDevice:
             len(notify.foods),
             notify.raw_payload.hex(),
         )
-        self._latest_food_selection = notify
-        self._food_selection_listeners.emit(notify)
+        self._food = notify
+        self._events.emit(Event.FOOD, notify)
         await self._food_selections.put(notify)
 
     def _handle_capabilities(self, payload: bytes) -> None:
         try:
-            capabilities = parse_fun_info(payload).absorb_discovered(self._capabilities)
+            capabilities = _keep_discovered(parse_fun_info(payload), self._capabilities)
         except ProtocolError as exc:
             _LOGGER.debug(
                 "ignored funInfo notify: %s payload=%s",
@@ -627,10 +574,25 @@ class KitchenScaleDevice:
         )
         self._capabilities = capabilities
         self._fun_info_event.set()
-        self._capabilities_listeners.emit(capabilities)
+        self._events.emit(Event.CAPABILITIES, capabilities)
+        if capabilities.battery is not None:
+            self._events.emit(Event.BATTERY, capabilities.battery)
 
 
-def _protocol_for_device_type(device_type: int) -> ProtocolVersion:
-    if device_type == DEVICE_TYPE_KG2458:
-        return ProtocolVersion.GENERAL_V2_113
-    return ProtocolVersion.GENERAL_V2_113
+def _merge_compatibility(
+    caps: DeviceCapabilities, extra: CompatibilityFlag
+) -> DeviceCapabilities:
+    """Return ``caps`` with additional discovered compatibility bits."""
+    if extra & caps.compatibility == extra:
+        return caps
+    return replace(caps, compatibility=caps.compatibility | extra)
+
+
+def _keep_discovered(
+    caps: DeviceCapabilities, previous: DeviceCapabilities | None
+) -> DeviceCapabilities:
+    """Keep WEIGHT / FFB4 / DFU bits from an earlier probe of the same session."""
+    if previous is None:
+        return caps
+    extra = previous.compatibility & DISCOVERED_COMPATIBILITY
+    return _merge_compatibility(caps, extra)

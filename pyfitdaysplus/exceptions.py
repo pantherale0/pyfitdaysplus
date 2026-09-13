@@ -17,7 +17,3 @@ class NotConnectedError(IcomonKitchenError):
 
 class ProtocolError(IcomonKitchenError):
     """A frame could not be encoded or decoded."""
-
-
-class UnsupportedProtocolError(IcomonKitchenError):
-    """The device uses a protocol variant that is not implemented yet."""

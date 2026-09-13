@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from enum import IntEnum, IntFlag
-from typing import Literal
 
 
 class Unit(IntEnum):
@@ -187,7 +186,6 @@ class WeightReading:
     McCance & Widdowson foods of the same English name.
     """
 
-    grams: float
     milligrams: int
     unit: Unit
     stable: bool
@@ -199,15 +197,15 @@ class WeightReading:
     user_id: int = 0
 
     @property
+    def grams(self) -> float:
+        """Mass in grams, derived from :attr:`milligrams`."""
+        return self.milligrams / 1000.0
+
+    @property
     def value(self) -> float:
         """Numeric value in :attr:`unit` (mass still stored as milligrams)."""
         signed = -self.grams if self.is_negative else self.grams
         return signed / _GRAMS_PER_UNIT[self.unit]
-
-    @property
-    def isTare(self) -> bool:
-        """SDK-style alias for :attr:`is_tare`."""
-        return self.is_tare
 
 
 @dataclass(frozen=True, slots=True)
@@ -241,41 +239,14 @@ class DeviceCapabilities:
     raw_payload: bytes = b""
     battery: BatteryInfo | None = None
 
-    def supports(self, feature: DeviceFunction | CompatibilityFlag) -> bool:
-        """Return whether ``feature`` is enabled (vendor bit or library flag)."""
-        if isinstance(feature, CompatibilityFlag):
-            return bool(self.compatibility & feature)
-        return bool(self.function_flags & feature)
-
-    def with_discovered(self, extra: CompatibilityFlag) -> DeviceCapabilities:
-        """Return a copy with additional discovered compatibility bits."""
-        if extra & self.compatibility == extra:
-            return self
-        return replace(self, compatibility=self.compatibility | extra)
-
-    def absorb_discovered(
-        self, previous: DeviceCapabilities | None
-    ) -> DeviceCapabilities:
-        """Keep WEIGHT / FFB4 / DFU bits from an earlier probe of the same session."""
-        if previous is None:
-            return self
-        extra = previous.compatibility & DISCOVERED_COMPATIBILITY
-        return self.with_discovered(extra)
+    def supports(self, feature: CompatibilityFlag) -> bool:
+        """Return whether ``feature`` is enabled."""
+        return bool(self.compatibility & feature)
 
     @property
     def flags(self) -> tuple[CompatibilityFlag, ...]:
         """Enabled named compatibility flags."""
         return named_compatibility_flags(self.compatibility)
-
-    @property
-    def voice_assistant(self) -> bool:
-        """Return whether the scale reports on-device voice ASR."""
-        return self.supports(CompatibilityFlag.VOICE_ASSISTANT)
-
-    @property
-    def voice_language(self) -> bool:
-        """Configurable voice language (SDK: ``ICDeviceFunctionVoiceLanguage``)."""
-        return self.supports(CompatibilityFlag.VOICE_LANGUAGE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -289,16 +260,6 @@ class FoodInfo:
 
     food_id: int
     food_index: int | None = None
-
-    @property
-    def foodId(self) -> int:
-        """SDK-style alias for :attr:`food_id`."""
-        return self.food_id
-
-    @property
-    def foodIndex(self) -> int | None:
-        """SDK-style alias for :attr:`food_index`."""
-        return self.food_index
 
 
 @dataclass(frozen=True, slots=True)
@@ -327,9 +288,6 @@ class ScaleInfo:
     protocol: ProtocolVersion
     firmware: str | None = None
     hardware: str | None = None
-
-
-SettingKind = Literal["tare", "power", "unit", "weight"]
 
 
 class NutritionFactType(IntEnum):
@@ -369,7 +327,6 @@ class CommonFood:
     name: str
     icon: bytes = b""
     weight: int = 0
-    magnification: int = 0  # not sent on D6/D7 wire; kept for app-side use only
     facts: tuple[NutritionFact, ...] = ()
 
 

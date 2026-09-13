@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from icomon_kitchen.exceptions import ProtocolError
-from icomon_kitchen.models import DeviceFunction, FoodInfo, Unit
-from icomon_kitchen.protocol.constants import NOTIFY_FOOD_INFO
-from icomon_kitchen.protocol.framing import decode_notify_payload, encode_frame
-from icomon_kitchen.protocol.notify import (
-    parse_food_info,
+from pyfitdaysplus.exceptions import ProtocolError
+from pyfitdaysplus.models import CompatibilityFlag, DeviceFunction, FoodInfo, Unit
+from pyfitdaysplus.protocol.constants import NOTIFY_FOOD_INFO
+from pyfitdaysplus.protocol.framing import decode_notify_payload, encode_frame
+from pyfitdaysplus.protocol.notify import (
     parse_food_info_notify,
     parse_fun_info,
     parse_history_weight_records,
@@ -95,7 +94,6 @@ def test_parse_a6_tare_flag() -> None:
     body = (14).to_bytes(2, "big") + b"\x00" + bytes(data)
     reading = parse_weight_notification(encode_frame(0xA6, body))
     assert reading.is_tare is True
-    assert reading.isTare is True
 
 
 @pytest.mark.parametrize(
@@ -179,9 +177,9 @@ def test_parse_fun_info_voice_capability_bits() -> None:
     flags = int(DeviceFunction.VOICE_ASSISTANT | DeviceFunction.VOICE_LANGUAGE)
     payload = bytes([0xA0, *flags.to_bytes(4, "big"), 0x00])
     capabilities = parse_fun_info(payload)
-    assert capabilities.voice_assistant is True
-    assert capabilities.voice_language is True
-    assert capabilities.supports(DeviceFunction.VOICE_ASSISTANT)
+    assert capabilities.supports(CompatibilityFlag.VOICE_ASSISTANT)
+    assert capabilities.supports(CompatibilityFlag.VOICE_LANGUAGE)
+    assert bool(capabilities.function_flags & DeviceFunction.VOICE_ASSISTANT)
 
 
 def test_parse_food_info_notify_recognizes_af_and_preserves_raw() -> None:
@@ -191,11 +189,6 @@ def test_parse_food_info_notify_recognizes_af_and_preserves_raw() -> None:
     assert notify.raw_payload == payload
     assert notify.count is None
     assert notify.foods == ()
-
-
-def test_parse_food_info_alias_matches_notify_parser() -> None:
-    payload = bytes([0xAF, 0x00, 0x7B, 0x10])
-    assert parse_food_info(payload) == parse_food_info_notify(payload)
 
 
 def test_parse_food_info_requires_af_type() -> None:
@@ -210,17 +203,14 @@ def test_parse_food_info_rejects_empty_payload() -> None:
 
 def test_food_info_entry_supports_optional_food_index() -> None:
     entry = FoodInfo(food_id=300, food_index=None)
-    assert entry.foodId == 300
-    assert entry.foodIndex is None
+    assert entry.food_id == 300
+    assert entry.food_index is None
 
     indexed = FoodInfo(food_id=300, food_index=16)
     assert indexed.food_index == 16
-    assert indexed.foodIndex == 16
 
 
-LIVE_AC_CONFIRM = bytes.fromhex(
-    "ac42001100016aa67db6000153d80000043503c389e2ac97"
-)
+LIVE_AC_CONFIRM = bytes.fromhex("ac42001100016aa67db6000153d80000043503c389e2ac97")
 
 
 def test_parse_live_ac_history_confirm() -> None:

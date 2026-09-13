@@ -1,7 +1,7 @@
 ---
 name: Android Reverse Engineering
 description: >-
-  ICOMON Kitchen Scale — an async Python integration library using the
+  pyfitdaysplus — an async Python integration library using the
   ble protocol.
 when_to_use: >-
   Reverse engineering an Android application when required.

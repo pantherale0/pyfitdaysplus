@@ -1,1 +1,1 @@
-"""Pytest configuration hooks for ICOMON Kitchen Scale."""
+"""Pytest configuration hooks for pyfitdaysplus."""

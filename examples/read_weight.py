@@ -12,9 +12,10 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from examples._common import add_device_args, configure_logging, open_device, run
-from icomon_kitchen import (
+from pyfitdaysplus import (
     CommonFood,
     CompatibilityFlag,
+    Event,
     NutritionFact,
     NutritionFactType,
     Unit,
@@ -100,8 +101,8 @@ async def main() -> int:
                 "(re-upload food before the next ✓)"
             )
 
-        stop_weight = device.subscribe_weight(on_weight)
-        stop_tick = device.subscribe_tick(on_tick)
+        stop_weight = device.subscribe(Event.WEIGHT, on_weight)
+        stop_tick = device.subscribe(Event.TICK, on_tick)
         try:
             await asyncio.sleep(args.seconds)
         finally:

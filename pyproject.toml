@@ -3,13 +3,13 @@ build-backend = "setuptools.build_meta"
 requires = [ "setuptools>=77.0.3" ]
 
 [project]
-name = "icomon-kitchen-scale"
+name = "pyfitdaysplus"
 version = "0.0.0"
 description = "Async BLE client for ICOMON / Fitdays+ kitchen scales (protocol 113 GeneralV2)."
 readme = "README.md"
 license = "MIT"
 authors = [
-  { name = "ICOMON Developer", email = "dev@example.com" },
+  { name = "pantherale0", email = "jordan@hrvy.uk" },
 ]
 requires-python = ">=3.10"
 classifiers = [
@@ -31,12 +31,12 @@ classifiers = [
 dependencies = [
   "bleak>=1.0",
 ]
-urls."Bug Tracker" = "https://github.com/icomon/icomon-kitchen-scale/issues"
-urls.repository = "https://github.com/icomon/icomon-kitchen-scale"
+urls."Bug Tracker" = "https://github.com/pantherale0/pyfitdaysplus/issues"
+urls.repository = "https://github.com/pantherale0/pyfitdaysplus"
 
 [tool.setuptools.packages.find]
 where = [ "." ]
-include = [ "icomon_kitchen*" ]
+include = [ "pyfitdaysplus*" ]
 
 [dependency-groups]
 dev = [
@@ -70,12 +70,8 @@ lint.ignore = [
   "D401", # First line of docstring should be in imperative mood
 ]
 lint.per-file-ignores."conftest.py" = [ "D100" ]
-lint.per-file-ignores."icomon_kitchen/adapter.py" = [ "D102", "D105" ]
-lint.per-file-ignores."icomon_kitchen/ble/backend.py" = [ "D102" ]
-lint.per-file-ignores."icomon_kitchen/client.py" = [ "D105" ]
-lint.per-file-ignores."icomon_kitchen/cloud.py" = [ "D102" ]
-lint.per-file-ignores."icomon_kitchen/models.py" = [ "N802" ]
-lint.per-file-ignores."icomon_kitchen/device.py" = [ "D105" ]
+lint.per-file-ignores."pyfitdaysplus/ble/backend.py" = [ "D102" ]
+lint.per-file-ignores."pyfitdaysplus/device.py" = [ "D105" ]
 lint.per-file-ignores."examples/**/*" = [ "D103", "E402" ]
 lint.per-file-ignores."tests/**/*" = [
   "D100",
@@ -85,7 +81,7 @@ lint.per-file-ignores."tests/**/*" = [
   "D104",
   "S101",
 ]
-lint.isort.known-first-party = [ "icomon_kitchen", "tests" ]
+lint.isort.known-first-party = [ "pyfitdaysplus", "tests" ]
 
 [tool.pyproject-fmt]
 max_supported_python = "3.15"
@@ -111,7 +107,7 @@ addopts = [
   "-v",
   "-Wonce",
   "-p no:doctest",
-  "--cov=icomon_kitchen",
+  "--cov=pyfitdaysplus",
   "--cov-report=term",
   "--cov-report=xml",
 ]

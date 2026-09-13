@@ -12,7 +12,7 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from examples._common import add_device_args, configure_logging, open_device, run
-from icomon_kitchen import Unit
+from pyfitdaysplus import Unit
 
 CYCLE = (
     Unit.G,
@@ -42,7 +42,7 @@ async def main() -> int:
         for unit in CYCLE:
             await device.set_unit(unit)
             await asyncio.sleep(args.wait)
-            latest = device.latest_weight
+            latest = device.weight
             got = None if latest is None else latest.unit
             status = "ok" if got is unit else "FAIL"
             live = "none" if got is None else got.name

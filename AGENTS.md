@@ -7,7 +7,7 @@ repository.
 
 Skills for specialized workflows live in `.agents/skills/` (from
 [AG Kit](https://github.com/vudovn/ag-kit)) plus a project-specific skill at
-`.agents/skills/icomon_kitchen/`.
+`.agents/skills/pyfitdaysplus/`.
 
 | Tool | How skills are loaded |
 | --- | --- |
@@ -21,10 +21,10 @@ refresh Cursor skill links.
 
 ## Project overview
 
-**ICOMON Kitchen Scale** — Async BLE client for ICOMON / Fitdays+ kitchen scales (protocol 113 GeneralV2).
+**pyfitdaysplus** — Async BLE client for ICOMON / Fitdays+ kitchen scales (protocol 113 GeneralV2).
 
 Async Python integration library using the **ble** protocol.
-Package name: `icomon_kitchen`.
+Package name: `pyfitdaysplus`.
 
 ## Development commands
 
@@ -39,9 +39,8 @@ ruff format .
 
 ## Architecture
 
-- `icomon_kitchen/client.py` — high-level async `Client`
-- `icomon_kitchen/adapter.py` — `ble` adapter implementation
-- `icomon_kitchen/config.py` — `Config` and `COMM_PROTOCOL`
+- `pyfitdaysplus/client.py` — high-level async `Client`
+- `pyfitdaysplus/config.py` — `Config` and `COMM_PROTOCOL`
 - `tests/` — pytest suite (Sybil doctests via `conftest.py`)
 
 ## Conventions
@@ -49,7 +48,7 @@ ruff format .
 - Follow [conventional commits](https://www.conventionalcommits.org)
 - Ruff for lint/format; mypy configured in `pyproject.toml`
 - pytest-asyncio for async tests
-- Keep transport logic in `adapter.py`; expose behavior through `Client`
+- Keep GATT I/O in `ble/transport.py`; expose behavior through `Client` / `Device`
 
 ## Useful AG Kit skills
 
@@ -60,7 +59,7 @@ Browse `.agents/skills/` or invoke by name, for example:
 - `clean-code` — readability and maintainability
 - `systematic-debugging` — root-cause analysis
 - `verify-changes` — prove changes by running checks
-- `icomon_kitchen` — this project's layout and commands
+- `pyfitdaysplus` — this project's layout and commands
 
 Install or update AG Kit skills:
 

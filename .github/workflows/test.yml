@@ -41,7 +41,7 @@ jobs:
       - name: Run tests with pytest
         run: |
           uv run pytest tests/ \
-            --cov=icomon_kitchen \
+            --cov=pyfitdaysplus \
             --cov-report=xml \
             --cov-report=term-missing \
             --junitxml=junit.xml \

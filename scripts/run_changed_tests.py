@@ -7,7 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-PACKAGE = "icomon_kitchen"
+PACKAGE = "pyfitdaysplus"
 TEST_DIR = Path("tests")
 
 

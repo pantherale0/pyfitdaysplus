@@ -20,7 +20,6 @@ class ParsedCommonFood:
     icon: bytes
     weight: int
     facts: tuple[NutritionFact, ...]
-    food_index: int | None = None
 
     def to_common_food(self) -> CommonFood:
         """Return a :class:`CommonFood` suitable for re-encoding."""
@@ -81,9 +80,7 @@ def reassemble_split_data_frames(frames: Sequence[bytes]) -> bytes:
 
     reassembled = b"".join(slices[index] for index in expected_sequences)
     if len(reassembled) != total_len:
-        msg = (
-            f"splitData reassembly length {len(reassembled)} != total_len {total_len}"
-        )
+        msg = f"splitData reassembly length {len(reassembled)} != total_len {total_len}"
         raise ProtocolError(msg)
     return reassembled
 
@@ -135,28 +132,6 @@ def parse_common_food_body(body: bytes) -> ParsedCommonFood:
     )
 
 
-def parse_indexed_common_food_payload(payload: bytes) -> ParsedCommonFood:
-    """Parse a reassembled **215 / D7** payload prefixed with ``food_index u8``."""
-    if len(payload) < 2:
-        msg = f"indexed common-food payload too short: {len(payload)} bytes"
-        raise ProtocolError(msg)
-    food_index = payload[0]
-    parsed = parse_common_food_body(payload[1:])
-    return ParsedCommonFood(
-        food_id=parsed.food_id,
-        name=parsed.name,
-        icon=parsed.icon,
-        weight=parsed.weight,
-        facts=parsed.facts,
-        food_index=food_index,
-    )
-
-
-def parse_common_food_payload(payload: bytes) -> ParsedCommonFood:
-    """Parse a reassembled D6 logical payload."""
-    return parse_common_food_body(payload)
-
-
 def _parse_counted_facts(data: bytes) -> tuple[NutritionFact, ...]:
     if not data:
         msg = "common-food body truncated before fact_count"
@@ -171,9 +146,7 @@ def _parse_counted_facts(data: bytes) -> tuple[NutritionFact, ...]:
         fact_type = nutrition_fact_type_from_ordinal(data[offset])
         wire_value = int.from_bytes(data[offset + 1 : offset + 4], "big")
         offset += 4
-        facts.append(
-            NutritionFact(fact_type, wire_value / DEFAULT_NUTRITION_SCALE)
-        )
+        facts.append(NutritionFact(fact_type, wire_value / DEFAULT_NUTRITION_SCALE))
     if offset != len(data):
         msg = f"unexpected trailing bytes after facts: {data[offset:].hex()}"
         raise ProtocolError(msg)

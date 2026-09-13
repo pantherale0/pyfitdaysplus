@@ -6,21 +6,20 @@ import asyncio
 
 import pytest
 
-from icomon_kitchen.device import KitchenScaleDevice
-from icomon_kitchen.models import DeviceFunction
-from icomon_kitchen.protocol.constants import NOTIFY_FOOD_INFO
+from pyfitdaysplus.device import Device
+from pyfitdaysplus.events import Event
+from pyfitdaysplus.models import DeviceFunction
+from pyfitdaysplus.protocol.constants import NOTIFY_FOOD_INFO
 
 
 @pytest.mark.asyncio
 async def test_device_dispatches_food_and_capability_notifications() -> None:
-    device = KitchenScaleDevice("78:66:A5:D3:47:1E", name="MY_SCALE")
+    device = Device("78:66:A5:D3:47:1E", name="MY_SCALE")
     raw_payloads: list[bytes] = []
     flags: list[int] = []
 
-    device.set_food_selection_handler(
-        lambda notify: raw_payloads.append(notify.raw_payload)
-    )
-    device.set_capabilities_handler(lambda caps: flags.append(caps.function_flags))
+    device.subscribe(Event.FOOD, lambda notify: raw_payloads.append(notify.raw_payload))
+    device.subscribe(Event.CAPABILITIES, lambda caps: flags.append(caps.function_flags))
 
     payload = bytes([0xAF, 0x00, 0x7B, 0x10])
     voice_flags = int(DeviceFunction.VOICE_ASSISTANT)
@@ -35,7 +34,7 @@ async def test_device_dispatches_food_and_capability_notifications() -> None:
 
 @pytest.mark.asyncio
 async def test_food_selections_iterator_receives_notify() -> None:
-    device = KitchenScaleDevice("78:66:A5:D3:47:1E", name="MY_SCALE")
+    device = Device("78:66:A5:D3:47:1E", name="MY_SCALE")
     payload = bytes([0xAF, 0x01, 0x2C, 0x00, 0x05])
 
     async def send_food() -> None:

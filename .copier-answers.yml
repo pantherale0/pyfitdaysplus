@@ -4,18 +4,18 @@ _src_path: https://github.com/pantherale0/python-library-template.git
 comm_protocol: ble
 copyright_year: '2026'
 documentation: false
-email: dev@example.com
-full_name: ICOMON Developer
-github_username: icomon
+email: jordan@hrvy.uk
+full_name: pantherale0
+github_username: pantherale0
 has_cli: false
 initial_commit: false
 open_source_license: MIT
 open_with_editor: false
-package_name: icomon_kitchen
-project_name: ICOMON Kitchen Scale
+package_name: pyfitdaysplus
+project_name: pyfitdaysplus
 project_short_description: Async BLE client for ICOMON / Fitdays+ kitchen scales (protocol
     113 GeneralV2).
-project_slug: icomon-kitchen-scale
+project_slug: pyfitdaysplus
 run_uv_sync: false
 setup_agent_skills: false
 setup_github: false

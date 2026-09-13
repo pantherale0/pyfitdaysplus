@@ -28,7 +28,7 @@ def encode_nutrition_value(
     """
     Encode a float nutrition reading to 3-byte u24 BE.
 
-    Default scale is :data:`~icomon_kitchen.protocol.constants.DEFAULT_NUTRITION_SCALE`
+    Default scale is :data:`~pyfitdaysplus.protocol.constants.DEFAULT_NUTRITION_SCALE`
     (**x100**, verified on live D6). Pass ``scale=1.0`` for raw integers.
     """
     multiplier = DEFAULT_NUTRITION_SCALE if scale is None else scale
@@ -50,15 +50,6 @@ def encode_nutrition_facts(
         body.append(int(fact.type))
         body.extend(encode_nutrition_value(fact.value, scale=scale))
     return bytes(body)
-
-
-def encode_common_food_facts(
-    facts: tuple[NutritionFact, ...] | list[NutritionFact],
-    *,
-    scale: float | None = None,
-) -> bytes:
-    """Return ``fact_count u8 + (type u8 + value u24)…`` for D6 / D7 bodies."""
-    return encode_nutrition_facts(facts, scale=scale)
 
 
 def nutrition_fact_type_from_ordinal(ordinal: int) -> NutritionFactType:

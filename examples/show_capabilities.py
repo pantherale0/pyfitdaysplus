@@ -11,7 +11,7 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from examples._common import add_device_args, configure_logging, open_device, run
-from icomon_kitchen import CompatibilityFlag
+from pyfitdaysplus import CompatibilityFlag
 
 
 async def main() -> int:
@@ -32,11 +32,11 @@ async def main() -> int:
         print(f"nutrition   {caps.supports(CompatibilityFlag.NUTRITION)}")
         print(f"common food {caps.supports(CompatibilityFlag.COMMON_FOOD)}")
         print(f"dfu         {caps.supports(CompatibilityFlag.OTA_DFU)}")
-        battery = device.latest_battery
+        battery = device.battery
         if battery is not None:
             print(f"battery     {battery.percent}% (type {battery.battery_type})")
         await device.read_weight()
-        reading = device.latest_weight
+        reading = device.weight
         if reading is not None:
             print(f"weight      {reading.value:.2f} {reading.unit.symbol}")
     return 0

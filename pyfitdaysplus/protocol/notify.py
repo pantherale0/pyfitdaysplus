@@ -81,9 +81,7 @@ def parse_weight_event(payload: bytes) -> tuple[WeightReading, bool]:
         is_tare = False
         food_id = 0
         user_id = 0
-    grams = milligrams / 1000.0
     reading = WeightReading(
-        grams=grams,
         milligrams=milligrams,
         unit=unit,
         stable=stable,
@@ -140,10 +138,8 @@ def parse_history_weight_records(payload: bytes) -> tuple[WeightReading, ...]:
         milligrams = int.from_bytes(record[5:8], "big")
         food_id = int.from_bytes(record[8:12], "big")
         user_id = int.from_bytes(record[12:16], "big")
-        grams = milligrams / 1000.0
         readings.append(
             WeightReading(
-                grams=grams,
                 milligrams=milligrams,
                 unit=Unit.G,
                 stable=True,
@@ -233,8 +229,7 @@ def parse_food_info_notify(payload: bytes) -> FoodInfoNotify:
 
     Fitdays+ decodes this notify in native code before Java sees ``count`` and
     ``foods`` (each with ``foodId`` / ``foodIndex``). Without a verified wire
-    map, ``count`` stays ``None`` and ``foods`` is empty — see
-    ``protocol.food_info`` for TODO notes.
+    map, ``count`` stays ``None`` and ``foods`` is empty.
     """
     notify_type, _body = decode_notify_payload(payload)
     if notify_type != NOTIFY_FOOD_INFO:
@@ -247,11 +242,6 @@ def parse_food_info_notify(payload: bytes) -> FoodInfoNotify:
         count=None,
         foods=(),
     )
-
-
-def parse_food_info(payload: bytes) -> FoodInfoNotify:
-    """Alias for :func:`parse_food_info_notify`."""
-    return parse_food_info_notify(payload)
 
 
 def _looks_like_split_data(body: bytes) -> bool:

@@ -25,14 +25,14 @@ repos:
     hooks:
       - id: mypy
         name: mypy
-        entry: uv run mypy icomon_kitchen
+        entry: uv run mypy pyfitdaysplus
         language: system
         pass_filenames: false
-        files: ^icomon_kitchen/.*\.py$
+        files: ^pyfitdaysplus/.*\.py$
 
       - id: pytest-changed
         name: pytest (changed)
         entry: uv run python scripts/run_changed_tests.py
         language: system
         pass_filenames: false
-        files: ^(icomon_kitchen|tests)/
+        files: ^(pyfitdaysplus|tests)/

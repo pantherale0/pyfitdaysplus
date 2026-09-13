@@ -7,7 +7,7 @@ import asyncio
 import logging
 from collections.abc import Callable, Coroutine
 
-from icomon_kitchen import KitchenScaleClient, KitchenScaleDevice
+from pyfitdaysplus import Device, KitchenScaleClient
 
 DEFAULT_NAME = "MY_SCALE"
 
@@ -32,7 +32,7 @@ def configure_logging(verbose: bool) -> None:
         logging.getLogger("bleak").setLevel(logging.DEBUG)
 
 
-async def open_device(args: argparse.Namespace) -> KitchenScaleDevice:
+async def open_device(args: argparse.Namespace) -> Device:
     client = KitchenScaleClient()
     return await client.scan_for_device(name=args.name, address=args.address)
 

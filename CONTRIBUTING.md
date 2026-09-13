@@ -24,7 +24,7 @@ Look through the GitHub issues for features. Anything tagged with "enhancement" 
 
 ### Write Documentation
 
-ICOMON Kitchen Scale could always use more documentation, whether as part of the official ICOMON Kitchen Scale docs, in docstrings, or even on the web in blog posts, articles, and such.
+pyfitdaysplus could always use more documentation, whether as part of the official docs, in docstrings, or even on the web in blog posts, articles, and such.
 
 ### Submit Feedback
 
@@ -43,7 +43,7 @@ Ready to contribute? Here's how to set yourself up for local development.
 2. Clone your fork locally:
 
    ```shell
-   $ git clone git@github.com:your_name_here/icomon-kitchen-scale.git
+   $ git clone git@github.com:your_name_here/pyfitdaysplus.git
    ```
 
 3. Install the project dependencies with [uv](https://docs.astral.sh/uv/):
@@ -119,4 +119,4 @@ Releases are managed with [Release Drafter](https://github.com/release-drafter/r
 
 Ensure [trusted publishing](https://docs.pypi.org/trusted-publishers/) is configured for the project on PyPI.
 
-[gh-issues]: https://github.com/icomon/icomon-kitchen-scale/issues
+[gh-issues]: https://github.com/pantherale0/pyfitdaysplus/issues

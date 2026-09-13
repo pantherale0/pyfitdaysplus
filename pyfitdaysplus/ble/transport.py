@@ -19,7 +19,6 @@ from ..protocol.constants import (
     CHAR_WRITE_UUID,
     SERVICE_UUID,
 )
-from ..protocol.framing import encode_file_frame
 from .backend import BleBackend, DefaultBleBackend
 
 if TYPE_CHECKING:
@@ -150,15 +149,14 @@ class BleTransport:
             msg = "FFB4 file-write characteristic is not present on this scale"
             raise ProtocolError(msg)
         client = self._require_client()
-        payload = encode_file_frame(data)
         _LOGGER.debug(
             "write FFB4 response=%s payload=%s",
             self._file_write_with_response,
-            payload.hex(),
+            data.hex(),
         )
         await client.write_gatt_char(
             self._file_write_uuid_str,
-            payload,
+            data,
             response=self._file_write_with_response,
         )
 

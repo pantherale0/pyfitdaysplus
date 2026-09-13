@@ -1,13 +1,13 @@
-# Copilot instructions for ICOMON Kitchen Scale
+# Copilot instructions for pyfitdaysplus
 
-This is an async Python integration library (`icomon_kitchen`) using the
+This is an async Python integration library (`pyfitdaysplus`) using the
 **ble** protocol.
 
 ## Before editing
 
 1. Read `AGENTS.md` for commands and architecture.
 2. For specialized workflows, check `.agents/skills/` (AG Kit + project skill
-   `icomon_kitchen`).
+   `pyfitdaysplus`).
 
 ## Commands
 
@@ -19,9 +19,9 @@ prek run -a
 
 ## Code layout
 
-- `icomon_kitchen/client.py` — public async API
-- `icomon_kitchen/adapter.py` — protocol adapter
-- `icomon_kitchen/config.py` — configuration
+- `pyfitdaysplus/client.py` — public async API
+- `pyfitdaysplus/device.py` — connected scale
+- `pyfitdaysplus/config.py` — configuration
 - `tests/` — pytest tests
 
-Keep I/O async, adapter logic in `adapter.py`, and follow conventional commits.
+Keep I/O async and follow conventional commits.

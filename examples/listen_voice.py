@@ -12,7 +12,7 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from examples._common import add_device_args, configure_logging, open_device, run
-from icomon_kitchen import VOICE_WAKE_PHRASE, FoodInfoNotify
+from pyfitdaysplus import VOICE_WAKE_PHRASE, Event, FoodInfoNotify
 
 
 async def main() -> int:
@@ -31,7 +31,7 @@ async def main() -> int:
         for food in notify.foods:
             print(f"  id={food.food_id} index={food.food_index}")
 
-    device.subscribe_food_selection(on_food)
+    device.subscribe(Event.FOOD, on_food)
     async with device:
         await asyncio.sleep(args.seconds)
     return 0

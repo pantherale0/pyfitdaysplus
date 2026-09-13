@@ -4,16 +4,15 @@ from __future__ import annotations
 
 import pytest
 
-from icomon_kitchen.device import KitchenScaleDevice
-from icomon_kitchen.models import (
+from pyfitdaysplus.device import Device
+from pyfitdaysplus.models import (
     CompatibilityFlag,
-    DeviceCapabilities,
     DeviceFunction,
     compatibility_from_functions,
     named_compatibility_flags,
 )
-from icomon_kitchen.protocol.constants import DFU_SERVICE_UUID
-from icomon_kitchen.protocol.notify import parse_fun_info
+from pyfitdaysplus.protocol.constants import DFU_SERVICE_UUID
+from pyfitdaysplus.protocol.notify import parse_fun_info
 
 LIVE_A0 = bytes.fromhex(
     "ac42001a0000fc4f02262602262600003703e0014b00000001000000000000a008"
@@ -30,8 +29,7 @@ def test_live_fun_info_maps_nutrition_not_common_food() -> None:
     assert CompatibilityFlag.COMMON_FOOD not in caps.compatibility
     assert CompatibilityFlag.INDEXED_FOOD not in caps.compatibility
     assert caps.supports(CompatibilityFlag.NUTRITION)
-    assert caps.supports(DeviceFunction.VOICE_ASSISTANT)
-    assert not caps.supports(DeviceFunction.RESTART)
+    assert not (caps.function_flags & DeviceFunction.RESTART)
     names = {flag.name for flag in caps.flags}
     assert "NUTRITION" in names
     assert "COMMON_FOOD" not in names
@@ -57,23 +55,24 @@ def test_named_flags_skip_zero() -> None:
     )
 
 
-def test_with_discovered_is_idempotent() -> None:
-    caps = DeviceCapabilities(
-        function_flags=DeviceFunction(0),
-        compatibility=CompatibilityFlag.WEIGHT,
-    )
-    assert caps.with_discovered(CompatibilityFlag.WEIGHT) is caps
-    updated = caps.with_discovered(CompatibilityFlag.OTA_DFU)
-    assert CompatibilityFlag.OTA_DFU in updated.compatibility
-    assert CompatibilityFlag.WEIGHT in updated.compatibility
+def test_merge_discovered_is_idempotent() -> None:
+    device = Device("78:66:A5:D3:47:1E", name="MY_SCALE")
+    device._merge_discovered(CompatibilityFlag.WEIGHT)
+    first = device.capabilities
+    device._merge_discovered(CompatibilityFlag.WEIGHT)
+    assert device.capabilities is first
+    device._merge_discovered(CompatibilityFlag.OTA_DFU)
+    assert device.capabilities is not None
+    assert CompatibilityFlag.OTA_DFU in device.capabilities.compatibility
+    assert CompatibilityFlag.WEIGHT in device.capabilities.compatibility
 
 
-def test_absorb_discovered_keeps_weight_across_fun_info() -> None:
-    previous = DeviceCapabilities(
-        function_flags=DeviceFunction(0),
-        compatibility=CompatibilityFlag.WEIGHT | CompatibilityFlag.OTA_DFU,
-    )
-    caps = parse_fun_info(LIVE_A0).absorb_discovered(previous)
+def test_fun_info_keeps_weight_and_dfu_across_notify() -> None:
+    device = Device("78:66:A5:D3:47:1E", name="MY_SCALE")
+    device._merge_discovered(CompatibilityFlag.WEIGHT | CompatibilityFlag.OTA_DFU)
+    device._handle_capabilities(LIVE_A0)
+    caps = device.capabilities
+    assert caps is not None
     assert CompatibilityFlag.WEIGHT in caps.compatibility
     assert CompatibilityFlag.OTA_DFU in caps.compatibility
     assert CompatibilityFlag.NUTRITION in caps.compatibility
@@ -81,10 +80,8 @@ def test_absorb_discovered_keeps_weight_across_fun_info() -> None:
 
 @pytest.mark.asyncio
 async def test_first_weight_sets_weight_compatibility() -> None:
-    device = KitchenScaleDevice("78:66:A5:D3:47:1E", name="MY_SCALE")
-    await device._dispatch_notification(
-        bytes([0xA6, 0x02, 0x7C, 0xB8, 0x00, 0x01])
-    )
+    device = Device("78:66:A5:D3:47:1E", name="MY_SCALE")
+    await device._dispatch_notification(bytes([0xA6, 0x02, 0x7C, 0xB8, 0x00, 0x01]))
     assert device.capabilities is not None
     assert CompatibilityFlag.WEIGHT in device.capabilities.compatibility
 
@@ -118,7 +115,7 @@ async def test_probe_compatibility_sees_dfu_service() -> None:
     )
     transport = _transport(client)
     await transport.connect()
-    device = KitchenScaleDevice(
+    device = Device(
         "78:66:A5:D3:47:1E",
         name="MY_SCALE",
         transport=transport,

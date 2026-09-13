@@ -1,4 +1,4 @@
-"""Connection settings for ICOMON Kitchen Scale."""
+"""Connection settings for Fitdays+ kitchen scales."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-# ICOMON Kitchen Scale
+# pyfitdaysplus
 
 Async, fully typed Python library for the **ICOMON / Fitdays+** smart kitchen scale **KG2458ULB-D** (BLE name **`MY_SCALE`**, protocol **113 GeneralV2**).
 
@@ -33,9 +33,9 @@ triggering and audio transport are **not implemented**.
 ## Install
 
 ```bash
+pip install pyfitdaysplus
+# or from a clone
 uv sync
-# or
-pip install -e .
 ```
 
 Requires Python 3.10+, [`bleak`](https://github.com/hbldh/bleak) for BLE, and a Linux/macOS/Windows host with Bluetooth.
@@ -44,7 +44,7 @@ Requires Python 3.10+, [`bleak`](https://github.com/hbldh/bleak) for BLE, and a 
 
 ```python
 import asyncio
-from icomon_kitchen import KitchenScaleClient, Unit
+from pyfitdaysplus import KitchenScaleClient, Unit
 
 async def main() -> None:
     client = KitchenScaleClient()
@@ -52,7 +52,7 @@ async def main() -> None:
     # or: device = await client.scan_for_device(address="78:66:A5:D3:47:1E")
 
     async with device:
-        reading = await device.weight
+        reading = await device.async_get_weight()
         print(f"{reading.grams:.1f} g")
         await device.tare()
         await device.set_unit(Unit.G)
@@ -63,22 +63,25 @@ asyncio.run(main())
 ### Sync cache and event callbacks
 
 Notifications update an in-memory cache as they arrive. Sync code can read
-`device.cached_weight.grams` (or `device.latest_weight`) without `await`, and
-you can subscribe to live updates:
+`device.weight` (or `device.battery`, `device.food`, `device.ack`) without
+`await`, and you can subscribe to live updates:
 
 ```python
+from pyfitdaysplus import Event
+
 def on_weight(reading):
     print(f"{reading.grams:.1f} g, stable={reading.stable}")
 
-unsubscribe = device.subscribe_weight(on_weight)
+unsubscribe = device.subscribe(Event.WEIGHT, on_weight)
 
 def on_tick(reading):
     print(f"tick {reading.grams:.1f} g")
 
-unsubscribe_tick = device.subscribe_tick(on_tick)
+unsubscribe_tick = device.subscribe(Event.TICK, on_tick)
 
 # From sync code (e.g. a UI timer or callback):
-grams = device.cached_weight.grams
+reading = device.weight
+grams = None if reading is None else reading.grams
 
 unsubscribe()  # stop receiving callbacks
 unsubscribe_tick()
@@ -105,19 +108,18 @@ uv run python examples/listen_voice.py --name MY_SCALE
 ## Public API
 
 - `KitchenScaleClient.scan_for_device(name=..., address=...)`
-- `KitchenScaleDevice.connect()` / `disconnect()` / async context manager
-- `await device.weight` — latest live reading (uses cache when available)
-- `device.latest_weight` / `device.cached_weight.grams` — sync read from cache
-- `device.subscribe_weight(callback)` — event callbacks (returns unsubscribe)
-- `device.subscribe_tick(callback)` — hardware ✓ after a food upload (`0xAC` on KG2458; **one confirm per upload**)
+- `Device.connect()` / `disconnect()` / async context manager
+- `device.weight` / `device.battery` / `device.food` / `device.ack` — sync caches
+- `await device.async_get_weight()` — cached reading, or wait for the first notify
+- `device.subscribe(Event.WEIGHT, callback)` — event callbacks (returns unsubscribe)
+- `device.subscribe(Event.TICK, callback)` — hardware ✓ after a food upload (`0xAC` on KG2458; **one confirm per upload**)
+- `device.subscribe(Event.FOOD, callback)` / `subscribe(Event.CAPABILITIES, …)` / `subscribe(Event.BATTERY, …)`
 - `async for reading in device.weights(): ...`
 - `await device.tare()`
-- `await device.confirm()` — D2 type 10 (app “confirm food”; the hardware ✓ is `subscribe_tick`)
+- `await device.confirm()` — D2 type 10 (app “confirm food”; the hardware ✓ is `Event.TICK`)
 - `await device.set_unit(Unit.G)` (also `ML`, `LB`, `OZ`, …)
 - `await device.read_food_selection()` → `FoodInfoNotify` with `raw_payload`
 - `async for notify in device.food_selections():` — decode `notify.foods` when wire map exists
-- `device.set_food_selection_handler(callback)` for voice ASR **`0xAF`** notifies
-- `device.subscribe_food_selection(callback)` / `subscribe_capabilities(callback)`
 - `await device.set_nutrition(food_id, facts)` — cmd **213 / D5**
 - `await device.set_common_food(food)` — cmd **214 / D6** (split when long)
 - `await device.set_common_food_indexed(food_index, food)` — cmd **215 / D7**
@@ -125,7 +127,7 @@ uv run python examples/listen_voice.py --name MY_SCALE
 - Low-level encode helpers: `build_set_nutrition_frame`, `encode_nutrition_value_u24`, …
 - `device.capabilities` / `parse_fun_info` — vendor `DeviceFunction` bits plus
   `CompatibilityFlag` (`caps.flags`, `caps.supports(CompatibilityFlag.NUTRITION)`)
-- `device.latest_battery` / `caps.battery` — percent from ``funInfo`` (`0xA0`)
+- `device.battery` / `caps.battery` — percent from ``funInfo`` (`0xA0`)
 - `await device.probe_compatibility()` — merge funInfo with GATT (FFB4, Nordic DFU)
   and live weight, without extra command writes
 - Injectable BLE backend via `KitchenScaleClient(backend=...)` for tests
@@ -144,10 +146,10 @@ The **KG2458ULB-D** microphone runs offline AI food recognition locally (wake
 
 Java never sees raw offsets. This library recognizes **`0xAF`**, preserves
 **`raw_payload`**, and leaves **`count` / `foods` empty** until the wire layout
-is verified (see `icomon_kitchen/protocol/food_info.py`).
+is verified.
 
 ```python
-from icomon_kitchen import KitchenScaleClient, parse_food_info_notify
+from pyfitdaysplus import Event, KitchenScaleClient, parse_food_info_notify
 
 client = KitchenScaleClient()
 device = await client.scan_for_device(name="MY_SCALE")
@@ -157,7 +159,7 @@ def on_voice_food(notify):
     for food in notify.foods:
         print(food.food_id, food.food_index)
 
-device.set_food_selection_handler(on_voice_food)
+device.subscribe(Event.FOOD, on_voice_food)
 
 async with device:
     notify = await device.read_food_selection()
@@ -172,11 +174,11 @@ We do **not** stream audio or inject the **“Hello Vita”** wake phrase over B
 that **before** each ✓. The scale’s LCD may still show a firmware catalog
 name (live KG2458 used USDA-style ids, e.g. 1077 → “MILK WHOLE”). Trust the
 macros you just sent, not the onboard US table. After ✓ the scale saves
-once (`subscribe_tick` / history ``0xAC``) and will not tick again until
+once (`Event.TICK` / history ``0xAC``) and will not tick again until
 you upload another food.
 
 ```python
-from icomon_kitchen import CommonFood, NutritionFact, NutritionFactType
+from pyfitdaysplus import CommonFood, Event, NutritionFact, NutritionFactType
 
 food = CommonFood(
     food_id=42,
@@ -189,7 +191,7 @@ def on_tick(reading):
     print(reading.grams, reading.food_id)
 
 async with device:
-    device.subscribe_tick(on_tick)
+    device.subscribe(Event.TICK, on_tick)
     await device.set_common_food(food)
     await device.set_nutrition(food.food_id, list(food.facts))
     # weigh, press ✓ → on_tick once
@@ -230,10 +232,6 @@ Voice food selection uses notify **`0xAF`** (`ICFoodInfo`). Decoded Java shape:
 `count` + `foods[{ foodId, foodIndex }]`. **BLE byte packing is unknown** in v1;
 use `FoodInfoNotify.raw_payload`.
 
-## Fitdays cloud
-
-HTTP/cloud sync is **not implemented**. `icomon_kitchen.cloud.FitdaysCloudClient` is a stub for future work.
-
 ## Known unknowns
 
 - Full **`0xA6`** notify field map (data[0] bit ``0x80`` = unstable; data[1]
@@ -253,7 +251,7 @@ HTTP/cloud sync is **not implemented**. `icomon_kitchen.cloud.FitdaysCloudClient
 
 ```bash
 uv run pytest
-uv run mypy icomon_kitchen
+uv run mypy pyfitdaysplus
 uv run ruff check .
 ```
 

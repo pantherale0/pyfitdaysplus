@@ -7,7 +7,7 @@ import shutil
 import sys
 from pathlib import Path
 
-PACKAGE_NAME = "icomon_kitchen"
+PACKAGE_NAME = "pyfitdaysplus"
 STAGING_DIR = Path("agent-skills")
 AGENTS_DIR = Path(".agents")
 SKILLS_DIR = AGENTS_DIR / "skills"

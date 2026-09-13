@@ -1,1 +1,1 @@
-"""Example scripts for `icomon_kitchen`."""
+"""Example scripts for `pyfitdaysplus`."""

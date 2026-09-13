@@ -19,7 +19,7 @@ from .constants import (
     SPLIT_DATA_HEADER_LEN,
 )
 from .framing import encode_frame
-from .nutrition import encode_common_food_facts, encode_nutrition_facts
+from .nutrition import encode_nutrition_facts
 
 
 def _write_int_be(value: int) -> bytes:
@@ -59,8 +59,8 @@ def build_set_nutrition_payload(
 
     Layout: ``foodId u32 BE | count u8 | (type u8 + value u24)…``
 
-    Native D5 scaling is :data:`~icomon_kitchen.protocol.constants.SET_NUTRITION_SCALE`
-    (×10). D6/D7 keep ×100.
+    Native D5 scaling is :data:`~pyfitdaysplus.protocol.constants.SET_NUTRITION_SCALE`
+    (x10). D6/D7 keep x100.
     """
     multiplier = SET_NUTRITION_SCALE if scale is None else scale
     return _write_int_be(food_id) + encode_nutrition_facts(
@@ -121,7 +121,7 @@ def build_common_food_body(
     body.extend(_write_length_prefixed(name_bytes, field="name"))
     body.extend(_write_length_prefixed(food.icon, field="icon"))
     body.extend(_write_short_be(food.weight))
-    body.extend(encode_common_food_facts(food.facts, scale=scale))
+    body.extend(encode_nutrition_facts(food.facts, scale=scale))
     return bytes(body)
 
 

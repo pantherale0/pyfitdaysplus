@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from icomon_kitchen.models import Unit
-from icomon_kitchen.protocol.commands import (
+from pyfitdaysplus.models import Unit
+from pyfitdaysplus.protocol.commands import (
     build_app_reply,
     build_read_history,
     build_setting_confirm,
@@ -13,7 +13,7 @@ from icomon_kitchen.protocol.commands import (
     build_setting_unit,
     build_setting_weight_grams,
 )
-from icomon_kitchen.protocol.framing import (
+from pyfitdaysplus.protocol.framing import (
     checksum,
     decode_frame,
     encode_frame,

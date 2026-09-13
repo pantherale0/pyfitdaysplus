@@ -7,10 +7,10 @@ from uuid import UUID
 
 import pytest
 
-from icomon_kitchen.ble.backend import BleBackend
-from icomon_kitchen.ble.transport import BleTransport
-from icomon_kitchen.exceptions import ProtocolError
-from icomon_kitchen.protocol.constants import (
+from pyfitdaysplus.ble.backend import BleBackend
+from pyfitdaysplus.ble.transport import BleTransport
+from pyfitdaysplus.exceptions import ProtocolError
+from pyfitdaysplus.protocol.constants import (
     CHAR_FILE_WRITE_UUID,
     CHAR_NOTIFY_UUID,
     CHAR_WRITE_UUID,

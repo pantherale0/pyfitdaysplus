@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from icomon_kitchen.exceptions import ProtocolError
-from icomon_kitchen.models import CommonFood, FoodReference, NutritionFact
-from icomon_kitchen.protocol.constants import (
+from pyfitdaysplus.exceptions import ProtocolError
+from pyfitdaysplus.models import CommonFood, FoodReference, NutritionFact
+from pyfitdaysplus.protocol.constants import (
     CMD_ALT_DELETE,
     CMD_COMMON_FOOD,
     CMD_COMMON_FOOD_INDEXED,
@@ -15,11 +15,11 @@ from icomon_kitchen.protocol.constants import (
     DEVICE_TYPE_KG2458,
     SET_NUTRITION_SCALE,
 )
-from icomon_kitchen.protocol.food_decode import (
+from pyfitdaysplus.protocol.food_decode import (
     parse_common_food_body,
     reassemble_split_data_frames,
 )
-from icomon_kitchen.protocol.food_write import (
+from pyfitdaysplus.protocol.food_write import (
     build_common_food_body,
     build_delete_common_foods_frame,
     build_delete_common_foods_payload,
@@ -29,8 +29,8 @@ from icomon_kitchen.protocol.food_write import (
     build_set_nutrition_payload,
     encode_split_data_frames,
 )
-from icomon_kitchen.protocol.framing import verify_frame
-from icomon_kitchen.protocol.nutrition import (
+from pyfitdaysplus.protocol.framing import verify_frame
+from pyfitdaysplus.protocol.nutrition import (
     encode_nutrition_value,
     encode_nutrition_value_u24,
     nutrition_fact_type_from_ordinal,

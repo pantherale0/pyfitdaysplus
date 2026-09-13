@@ -7,37 +7,41 @@ import logging
 
 import pytest
 
-from icomon_kitchen.device import KitchenScaleDevice
-from icomon_kitchen.models import DeviceFunction, Unit
-from icomon_kitchen.protocol.constants import NOTIFY_FOOD_INFO
-from icomon_kitchen.protocol.framing import encode_frame
-from icomon_kitchen.protocol.notify import parse_weight_notification
+from pyfitdaysplus.device import Device
+from pyfitdaysplus.events import Event
+from pyfitdaysplus.models import CompatibilityFlag, DeviceFunction, Unit
+from pyfitdaysplus.protocol.constants import NOTIFY_FOOD_INFO
+from pyfitdaysplus.protocol.framing import encode_frame
+from pyfitdaysplus.protocol.notify import parse_weight_notification
 
 _WEIGHT_PAYLOAD = bytes([0xA6, 0x02, 0x7C, 0xB8, 0x00, 0x01])
+LIVE_A0 = bytes.fromhex(
+    "ac42001a0000fc4f02262602262600003703e0014b00000001000000000000a008"
+)
 
 
 @pytest.mark.asyncio
 async def test_weight_cache_updated_on_notify() -> None:
-    device = KitchenScaleDevice("78:66:A5:D3:47:1E", name="MY_SCALE")
+    device = Device("78:66:A5:D3:47:1E", name="MY_SCALE")
 
-    assert device.latest_weight is None
-    assert device.cached_weight.grams is None
+    assert device.weight is None
 
     await device._dispatch_notification(_WEIGHT_PAYLOAD)
 
-    reading = device.latest_weight
+    reading = device.weight
     assert reading is not None
     assert reading.milligrams == 163_000
-    assert device.cached_weight.grams == reading.grams
-    assert device.cached_weight.stable is reading.stable
+    assert reading.grams == pytest.approx(163.0)
+    assert reading.stable is True
 
 
 @pytest.mark.asyncio
 async def test_subscribe_weight_receives_callbacks() -> None:
-    device = KitchenScaleDevice("78:66:A5:D3:47:1E", name="MY_SCALE")
+    device = Device("78:66:A5:D3:47:1E", name="MY_SCALE")
     received: list[float] = []
 
-    unsubscribe = device.subscribe_weight(
+    unsubscribe = device.subscribe(
+        Event.WEIGHT,
         lambda reading: received.append(reading.grams),
     )
     await device._dispatch_notification(_WEIGHT_PAYLOAD)
@@ -50,12 +54,12 @@ async def test_subscribe_weight_receives_callbacks() -> None:
 
 @pytest.mark.asyncio
 async def test_multiple_weight_subscribers() -> None:
-    device = KitchenScaleDevice("78:66:A5:D3:47:1E", name="MY_SCALE")
+    device = Device("78:66:A5:D3:47:1E", name="MY_SCALE")
     first: list[int] = []
     second: list[int] = []
 
-    device.subscribe_weight(lambda reading: first.append(reading.milligrams))
-    device.subscribe_weight(lambda reading: second.append(reading.milligrams))
+    device.subscribe(Event.WEIGHT, lambda reading: first.append(reading.milligrams))
+    device.subscribe(Event.WEIGHT, lambda reading: second.append(reading.milligrams))
 
     await device._dispatch_notification(_WEIGHT_PAYLOAD)
 
@@ -63,42 +67,53 @@ async def test_multiple_weight_subscribers() -> None:
 
 
 @pytest.mark.asyncio
-async def test_await_weight_uses_cache_without_waiting() -> None:
-    device = KitchenScaleDevice("78:66:A5:D3:47:1E", name="MY_SCALE")
+async def test_async_get_weight_uses_cache_without_waiting() -> None:
+    device = Device("78:66:A5:D3:47:1E", name="MY_SCALE")
     await device._dispatch_notification(_WEIGHT_PAYLOAD)
 
-    reading = await asyncio.wait_for(device.weight, timeout=0.01)
+    reading = await asyncio.wait_for(device.async_get_weight(), timeout=0.01)
     assert reading.milligrams == 163_000
 
 
 @pytest.mark.asyncio
-async def test_food_selection_cache_and_subscribe() -> None:
-    device = KitchenScaleDevice("78:66:A5:D3:47:1E", name="MY_SCALE")
+async def test_food_cache_and_subscribe() -> None:
+    device = Device("78:66:A5:D3:47:1E", name="MY_SCALE")
     payload = bytes([0xAF, 0x01, 0x2C, 0x00, 0x05])
     notifies: list[bytes] = []
 
-    device.subscribe_food_selection(
-        lambda notify: notifies.append(notify.raw_payload),
-    )
+    device.subscribe(Event.FOOD, lambda notify: notifies.append(notify.raw_payload))
     await device._dispatch_notification(payload)
 
-    assert device.latest_food_selection is not None
-    assert device.latest_food_selection.raw_type == NOTIFY_FOOD_INFO
+    assert device.food is not None
+    assert device.food.raw_type == NOTIFY_FOOD_INFO
     assert notifies == [payload]
 
 
 @pytest.mark.asyncio
 async def test_capabilities_cache_and_subscribe() -> None:
-    device = KitchenScaleDevice("78:66:A5:D3:47:1E", name="MY_SCALE")
+    device = Device("78:66:A5:D3:47:1E", name="MY_SCALE")
     voice_flags = int(DeviceFunction.VOICE_ASSISTANT)
     flags: list[int] = []
 
-    device.subscribe_capabilities(lambda caps: flags.append(caps.function_flags))
+    device.subscribe(Event.CAPABILITIES, lambda caps: flags.append(caps.function_flags))
     device._handle_capabilities(bytes([0xA0, *voice_flags.to_bytes(4, "big")]))
 
     assert device.capabilities is not None
-    assert device.capabilities.voice_assistant
+    assert device.capabilities.supports(CompatibilityFlag.VOICE_ASSISTANT)
     assert flags == [voice_flags]
+
+
+@pytest.mark.asyncio
+async def test_subscribe_battery_from_fun_info() -> None:
+    device = Device("78:66:A5:D3:47:1E", name="MY_SCALE")
+    percents: list[int] = []
+
+    device.subscribe(Event.BATTERY, lambda info: percents.append(info.percent))
+    device._handle_capabilities(LIVE_A0)
+
+    assert percents == [75]
+    assert device.battery is not None
+    assert device.battery.percent == 75
 
 
 def test_parse_weight_fixture_used_in_cache_test() -> None:
@@ -110,18 +125,18 @@ def test_parse_weight_fixture_used_in_cache_test() -> None:
 async def test_state_ack_is_parsed_not_unhandled(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    device = KitchenScaleDevice("78:66:A5:D3:47:1E", name="MY_SCALE")
+    device = Device("78:66:A5:D3:47:1E", name="MY_SCALE")
     payload = bytes.fromhex("ac42000200d200a175")
-    with caplog.at_level(logging.INFO, logger="icomon_kitchen.device"):
+    with caplog.at_level(logging.INFO, logger="pyfitdaysplus.device"):
         await device._dispatch_notification(payload)
 
-    assert device.latest_ack is not None
-    assert device.latest_ack.command == 0xD2
+    assert device.ack is not None
+    assert device.ack.command == 0xD2
     assert "unhandled notify" not in caplog.text
     assert "ack cmd=0xd2" in caplog.text
-    device = KitchenScaleDevice("78:66:A5:D3:47:1E", name="MY_SCALE")
+    device = Device("78:66:A5:D3:47:1E", name="MY_SCALE")
     payload = encode_frame(0xB0, b"\x01")
-    with caplog.at_level(logging.INFO, logger="icomon_kitchen.device"):
+    with caplog.at_level(logging.INFO, logger="pyfitdaysplus.device"):
         await device._dispatch_notification(payload)
 
     assert "unhandled notify type=0xb0" in caplog.text
@@ -130,21 +145,20 @@ async def test_state_ack_is_parsed_not_unhandled(
 
 @pytest.mark.asyncio
 async def test_live_a6_frame_updates_weight_cache() -> None:
-    device = KitchenScaleDevice("78:66:A5:D3:47:1E", name="MY_SCALE")
+    device = Device("78:66:A5:D3:47:1E", name="MY_SCALE")
     payload = bytes.fromhex("ac42000e000000104be00000000003c389e200a620")
     await device._dispatch_notification(payload)
 
-    reading = device.latest_weight
+    reading = device.weight
     assert reading is not None
     assert reading.milligrams == 1_068_000
     assert reading.raw_type == 0xA6
     assert reading.unit is Unit.G
-    assert device.cached_weight.unit is Unit.G
 
 
 @pytest.mark.asyncio
 async def test_unit_change_is_logged(caplog: pytest.LogCaptureFixture) -> None:
-    device = KitchenScaleDevice("78:66:A5:D3:47:1E", name="MY_SCALE")
+    device = Device("78:66:A5:D3:47:1E", name="MY_SCALE")
     grams = encode_frame(
         0xA6,
         (14).to_bytes(2, "big")
@@ -161,13 +175,13 @@ async def test_unit_change_is_logged(caplog: pytest.LogCaptureFixture) -> None:
         + (1000).to_bytes(3, "big")
         + bytes(9),
     )
-    with caplog.at_level(logging.INFO, logger="icomon_kitchen.device"):
+    with caplog.at_level(logging.INFO, logger="pyfitdaysplus.device"):
         await device._dispatch_notification(grams)
         await device._dispatch_notification(ounces)
 
     assert "unit changed G -> OZ" in caplog.text
-    assert device.latest_weight is not None
-    assert device.latest_weight.unit is Unit.OZ
+    assert device.weight is not None
+    assert device.weight.unit is Unit.OZ
 
 
 def _a6_frame(*, milligrams: int = 1000, tick: bool = False) -> bytes:
@@ -181,10 +195,11 @@ def _a6_frame(*, milligrams: int = 1000, tick: bool = False) -> bytes:
 
 @pytest.mark.asyncio
 async def test_subscribe_tick_fires_once_per_press() -> None:
-    device = KitchenScaleDevice("78:66:A5:D3:47:1E", name="MY_SCALE")
+    device = Device("78:66:A5:D3:47:1E", name="MY_SCALE")
     ticks: list[int] = []
-    unsubscribe = device.subscribe_tick(
-        lambda reading: ticks.append(reading.milligrams)
+    unsubscribe = device.subscribe(
+        Event.TICK,
+        lambda reading: ticks.append(reading.milligrams),
     )
 
     await device._dispatch_notification(_a6_frame(milligrams=250_000))
@@ -202,13 +217,12 @@ async def test_subscribe_tick_fires_once_per_press() -> None:
 
 @pytest.mark.asyncio
 async def test_live_ac_history_fires_tick() -> None:
-    device = KitchenScaleDevice("78:66:A5:D3:47:1E", name="MY_SCALE")
+    device = Device("78:66:A5:D3:47:1E", name="MY_SCALE")
     ticks: list[tuple[int, int]] = []
-    device.subscribe_tick(
-        lambda reading: ticks.append((reading.milligrams, reading.food_id))
+    device.subscribe(
+        Event.TICK,
+        lambda reading: ticks.append((reading.milligrams, reading.food_id)),
     )
-    payload = bytes.fromhex(
-        "ac42001100016aa67db6000153d80000043503c389e2ac97"
-    )
+    payload = bytes.fromhex("ac42001100016aa67db6000153d80000043503c389e2ac97")
     await device._dispatch_notification(payload)
     assert ticks == [(87_000, 1077)]

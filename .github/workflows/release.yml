@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/icomon-kitchen-scale
+      url: https://pypi.org/p/pyfitdaysplus
     permissions:
       id-token: write
     steps:
@@ -19,7 +19,7 @@ jobs:
 
       - name: Update version
         run: |
-          filepath="icomon_kitchen/__init__.py"
+          filepath="pyfitdaysplus/__init__.py"
           new_version_string="__version__ = \"${{ github.event.release.tag_name }}\""
           sed -i "s/^__version__ = .*$/$new_version_string/" "$filepath"
 
