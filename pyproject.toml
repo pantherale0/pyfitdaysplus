@@ -4,7 +4,7 @@ requires = [ "setuptools>=77.0.3" ]
 
 [project]
 name = "pyfitdaysplus"
-version = "0.0.0"
+dynamic = [ "version" ]
 description = "Async BLE client for ICOMON / Fitdays+ kitchen scales (protocol 113 GeneralV2)."
 readme = "README.md"
 license = "MIT"
@@ -37,6 +37,9 @@ urls.repository = "https://github.com/pantherale0/pyfitdaysplus"
 [tool.setuptools.packages.find]
 where = [ "." ]
 include = [ "pyfitdaysplus*" ]
+
+[tool.setuptools.dynamic]
+version = { attr = "pyfitdaysplus.__version__" }
 
 [dependency-groups]
 dev = [
