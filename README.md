@@ -46,6 +46,7 @@ Requires Python 3.10+, [`bleak`](https://github.com/hbldh/bleak) for BLE, and a 
 import asyncio
 from pyfitdaysplus import KitchenScaleClient, Unit
 
+
 async def main() -> None:
     client = KitchenScaleClient()
     device = await client.scan_for_device(name="MY_SCALE")
@@ -56,6 +57,7 @@ async def main() -> None:
         print(f"{reading.grams:.1f} g")
         await device.tare()
         await device.set_unit(Unit.G)
+
 
 asyncio.run(main())
 ```
@@ -69,13 +71,17 @@ Notifications update an in-memory cache as they arrive. Sync code can read
 ```python
 from pyfitdaysplus import Event
 
+
 def on_weight(reading):
     print(f"{reading.grams:.1f} g, stable={reading.stable}")
 
+
 unsubscribe = device.subscribe(Event.WEIGHT, on_weight)
+
 
 def on_tick(reading):
     print(f"tick {reading.grams:.1f} g")
+
 
 unsubscribe_tick = device.subscribe(Event.TICK, on_tick)
 
@@ -154,10 +160,12 @@ from pyfitdaysplus import Event, KitchenScaleClient, parse_food_info_notify
 client = KitchenScaleClient()
 device = await client.scan_for_device(name="MY_SCALE")
 
+
 def on_voice_food(notify):
     print(notify.raw_payload.hex())
     for food in notify.foods:
         print(food.food_id, food.food_index)
+
 
 device.subscribe(Event.FOOD, on_voice_food)
 
@@ -187,8 +195,10 @@ food = CommonFood(
     facts=(NutritionFact(NutritionFactType.PROTEIN, 12.0),),
 )
 
+
 def on_tick(reading):
     print(reading.grams, reading.food_id)
+
 
 async with device:
     device.subscribe(Event.TICK, on_tick)
