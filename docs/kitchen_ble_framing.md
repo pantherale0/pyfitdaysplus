@@ -4,6 +4,11 @@ General/V2 command frames: `AC | device_type | payload… | cmd | checksum`.
 
 This document covers **writing custom food + nutrition to the scale** (app → device).
 
+**Recommended session:** `set_common_food` and/or `set_nutrition` **first**, then
+weigh, then ✓. Repeat the upload before the next confirm. KG2458 emits one
+history ``0xAC`` tick per upload. LCD names may stay firmware catalog
+(USDA-style); trust the facts you sent.
+
 ## Command summary (protocol 113 / KG2458ULB-D)
 
 | Java cmd | Wire | API |
@@ -64,12 +69,25 @@ Locked facts (wire type ordinals vs `supportDataTypes` may differ from enum name
 
 ## 213 / D5 — set nutrition
 
+D5 does **not** include a food name. Fitdays uses it when funInfo has
+VoiceAssistant (nutrition) but **not** Restart (named/common food).
+
+On KG2458, a D6 write with UTF-8 `name="oats"` / `foodId=42` still put the
+scale into food-weigh mode. The LCD showed **MILK WHOLE** and A6 `foodId`
+was **1077** (`0x435`). That matches USDA SR NDB **01077** (US whole milk).
+On-scale names and default macros are a **firmware catalog**, not BLE UTF-8
+and not UK CoFID / McCance & Widdowson. US and UK foods of the same English
+name are not composition-equivalent; treat `food_id` as opaque. Custom D6
+names are ignored on this SKU. ✓ then saved history `0xAC` with the same id.
+
+Native `encodeupdateFoodInfo` scales `foodValue` **×10** (`SET_NUTRITION_SCALE`).
+
 ```
 WriteInt(foodId BE)
 WriteByte(count)
 repeat count times:
   WriteByte(type)
-  Write3ByteScaled(value)    // u24 BE, default scale ×100
+  Write3ByteScaled(value)    // u24 BE, D5 scale ×10
 ```
 
 ## 215 / D7 — indexed common food

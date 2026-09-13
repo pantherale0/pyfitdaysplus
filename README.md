@@ -72,16 +72,34 @@ def on_weight(reading):
 
 unsubscribe = device.subscribe_weight(on_weight)
 
+def on_tick(reading):
+    print(f"tick {reading.grams:.1f} g")
+
+unsubscribe_tick = device.subscribe_tick(on_tick)
+
 # From sync code (e.g. a UI timer or callback):
 grams = device.cached_weight.grams
 
 unsubscribe()  # stop receiving callbacks
+unsubscribe_tick()
 ```
 
-Example script:
+Example scripts (shared `--name` / `--address` / `-v`):
+
+| Script | What it does |
+| --- | --- |
+| `examples/read_weight.py` | Stream live weight (`--tare`, `--unit G`, `--send-food`, `--seconds`) |
+| `examples/show_capabilities.py` | Print `CompatibilityFlag` after `probe_compatibility()` |
+| `examples/cycle_units.py` | Walk `set_unit` through kitchen units |
+| `examples/listen_voice.py` | Print `0xAF` food-selection notifies (“Hello Vita”) |
 
 ```bash
 uv run python examples/read_weight.py --name MY_SCALE
+uv run python examples/read_weight.py --tare --unit G
+uv run python examples/read_weight.py --send-food --seconds 60
+uv run python examples/show_capabilities.py --address 78:66:A5:D3:47:1E
+uv run python examples/cycle_units.py --name MY_SCALE
+uv run python examples/listen_voice.py --name MY_SCALE
 ```
 
 ## Public API
@@ -91,8 +109,10 @@ uv run python examples/read_weight.py --name MY_SCALE
 - `await device.weight` — latest live reading (uses cache when available)
 - `device.latest_weight` / `device.cached_weight.grams` — sync read from cache
 - `device.subscribe_weight(callback)` — event callbacks (returns unsubscribe)
+- `device.subscribe_tick(callback)` — hardware ✓ after a food upload (`0xAC` on KG2458; **one confirm per upload**)
 - `async for reading in device.weights(): ...`
 - `await device.tare()`
+- `await device.confirm()` — D2 type 10 (app “confirm food”; the hardware ✓ is `subscribe_tick`)
 - `await device.set_unit(Unit.G)` (also `ML`, `LB`, `OZ`, …)
 - `await device.read_food_selection()` → `FoodInfoNotify` with `raw_payload`
 - `async for notify in device.food_selections():` — decode `notify.foods` when wire map exists
@@ -103,7 +123,11 @@ uv run python examples/read_weight.py --name MY_SCALE
 - `await device.set_common_food_indexed(food_index, food)` — cmd **215 / D7**
 - `await device.delete_common_foods(entries)` — cmd **220 / DC** on protocol 113
 - Low-level encode helpers: `build_set_nutrition_frame`, `encode_nutrition_value_u24`, …
-- `device.capabilities` / `parse_fun_info` for optional voice capability bits
+- `device.capabilities` / `parse_fun_info` — vendor `DeviceFunction` bits plus
+  `CompatibilityFlag` (`caps.flags`, `caps.supports(CompatibilityFlag.NUTRITION)`)
+- `device.latest_battery` / `caps.battery` — percent from ``funInfo`` (`0xA0`)
+- `await device.probe_compatibility()` — merge funInfo with GATT (FFB4, Nordic DFU)
+  and live weight, without extra command writes
 - Injectable BLE backend via `KitchenScaleClient(backend=...)` for tests
 
 No raw UUIDs or wire command bytes are required for normal kitchen-scale use.
@@ -142,44 +166,44 @@ async with device:
 
 We do **not** stream audio or inject the **“Hello Vita”** wake phrase over BLE.
 
-### Writing custom food + nutrition (Phase 2v2)
+### Writing custom food + nutrition (recommended)
 
-Send nutrition facts and custom food entries **to** the scale. Wire layouts follow
-Phase 1 native notes in [`docs/kitchen_ble_framing.md`](docs/kitchen_ble_framing.md).
-
-| Method | Cmd | Notes |
-| --- | --- | --- |
-| `set_nutrition(food_id, facts)` | 213 / D5 | `facts`: `NutritionFact(type, value)` |
-| `set_common_food(food)` | 214 / D6 | splitData chunks: `total_len \| seq \| slice` |
-| `set_common_food_indexed(food_index, food)` | 215 / D7 | `food_index` prefixes logical payload |
-| `delete_common_foods(entries)` | 220 / DC | Protocol 113 default; pass `use_alt_delete=False` for 216 / D8 |
+**Upload a food with your nutrition facts, then enter food-weigh mode.** Do
+that **before** each ✓. The scale’s LCD may still show a firmware catalog
+name (live KG2458 used USDA-style ids, e.g. 1077 → “MILK WHOLE”). Trust the
+macros you just sent, not the onboard US table. After ✓ the scale saves
+once (`subscribe_tick` / history ``0xAC``) and will not tick again until
+you upload another food.
 
 ```python
-from icomon_kitchen import (
-    CommonFood,
-    FoodReference,
-    KitchenScaleClient,
-    NutritionFact,
-    NutritionFactType,
-)
+from icomon_kitchen import CommonFood, NutritionFact, NutritionFactType
 
 food = CommonFood(
     food_id=42,
     name="Oats",
-    icon=b"\x01\x02",  # inline bytes only; FFB4 file upload not implemented
-    weight=500,
+    weight=100,
     facts=(NutritionFact(NutritionFactType.PROTEIN, 12.0),),
 )
 
+def on_tick(reading):
+    print(reading.grams, reading.food_id)
+
 async with device:
-    await device.set_nutrition(
-        42,
-        [NutritionFact(NutritionFactType.CALORIE, 150.0)],
-    )  # default scale ×100 → wire 15000; pass scale=1.0 for raw integers
+    device.subscribe_tick(on_tick)
     await device.set_common_food(food)
-    await device.set_common_food_indexed(3, food)
-    await device.delete_common_foods([FoodReference(food_id=42, food_index=3)])
+    await device.set_nutrition(food.food_id, list(food.facts))
+    # weigh, press ✓ → on_tick once
+    # upload again before the next ✓
 ```
+
+| Method | Cmd | Notes |
+| --- | --- | --- |
+| `set_nutrition(food_id, facts)` | 213 / D5 | facts only (no LCD name); native ×10 |
+| `set_common_food(food)` | 214 / D6 | splitData chunks: `total_len \| seq \| slice` |
+| `set_common_food_indexed(food_index, food)` | 215 / D7 | `food_index` prefixes logical payload |
+| `delete_common_foods(entries)` | 220 / DC | Protocol 113 default; pass `use_alt_delete=False` for 216 / D8 |
+
+D5 native ×10 (150 kcal → wire 1500); D6/D7 default ×100; pass `scale=1.0` for raw integers.
 
 **Provisional / TODO**
 
@@ -212,9 +236,10 @@ HTTP/cloud sync is **not implemented**. `icomon_kitchen.cloud.FitdaysCloudClient
 
 ## Known unknowns
 
-- Full **`0xA6`** notify field map (stable/unit offsets are best-effort)
+- Full **`0xA6`** notify field map (data[0] bit ``0x80`` = unstable; data[1]
+  high nibble = unit ordinal; data[2:5] = milligrams u24 BE)
 - **`0xAF` BLE payload packing** for `count` / `foods[{ foodId, foodIndex }]` (native decode only today)
-- Exact **`funInfo`** bit map for `ICDeviceFunctionVoiceAssistant` / `ICDeviceFunctionVoiceLanguage`
+- Remaining unused ``funInfo`` bytes after the 32-bit flag word (precisions / historyCount)
 - Whether voice language selection has a documented BLE setting command
 - No wire evidence for **“Hello Vita”** wake triggering or **audio/PCM** streaming over GATT
 - Nutrition u24 values default to **×100** scale (live D6 verified); override with `scale=`

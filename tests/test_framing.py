@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import pytest
 
+from icomon_kitchen.models import Unit
 from icomon_kitchen.protocol.commands import (
     build_app_reply,
     build_read_history,
+    build_setting_confirm,
     build_setting_tare,
+    build_setting_unit,
+    build_setting_weight_grams,
 )
 from icomon_kitchen.protocol.framing import (
     checksum,
@@ -50,7 +54,27 @@ def test_build_setting_tare_frame() -> None:
     frame = build_setting_tare()
     verify_frame(frame)
     assert frame[-2] == 0xD2
-    assert frame[2] == 0x00
+    assert frame[2:7] == bytes.fromhex("0002000000")
+
+
+def test_build_setting_confirm_is_d2_type_10() -> None:
+    frame = build_setting_confirm()
+    verify_frame(frame)
+    assert frame[-2] == 0xD2
+    assert frame[2:7] == bytes.fromhex("0002000a00")
+
+
+def test_build_setting_unit_matches_live_ml_write() -> None:
+    frame = build_setting_unit(Unit.ML)
+    verify_frame(frame)
+    assert frame.hex() == "ac420002000201d2d7"
+
+
+def test_build_setting_weight_grams_uses_split_u24() -> None:
+    frame = build_setting_weight_grams(250)
+    verify_frame(frame)
+    assert frame[-2] == 0xD2
+    assert frame[2:9] == bytes.fromhex("000400030000fa")
 
 
 def test_encode_frame_rejects_invalid_command() -> None:

@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
-from .models import VOICE_WAKE_PHRASE, DeviceCapabilities, DeviceFunction, FoodInfo
+from .models import (
+    VOICE_WAKE_PHRASE,
+    CompatibilityFlag,
+    DeviceCapabilities,
+    DeviceFunction,
+    FoodInfo,
+)
 
 __all__ = [
     "VOICE_WAKE_PHRASE",
+    "CompatibilityFlag",
     "DeviceCapabilities",
     "DeviceFunction",
     "FoodInfo",

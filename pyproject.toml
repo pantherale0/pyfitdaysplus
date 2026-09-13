@@ -76,7 +76,7 @@ lint.per-file-ignores."icomon_kitchen/client.py" = [ "D105" ]
 lint.per-file-ignores."icomon_kitchen/cloud.py" = [ "D102" ]
 lint.per-file-ignores."icomon_kitchen/models.py" = [ "N802" ]
 lint.per-file-ignores."icomon_kitchen/device.py" = [ "D105" ]
-lint.per-file-ignores."examples/**/*" = [ "D103" ]
+lint.per-file-ignores."examples/**/*" = [ "D103", "E402" ]
 lint.per-file-ignores."tests/**/*" = [
   "D100",
   "D101",

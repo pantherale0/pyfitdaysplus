@@ -13,6 +13,7 @@ from icomon_kitchen.protocol.constants import (
     CMD_SET_NUTRITION,
     DEFAULT_NUTRITION_SCALE,
     DEVICE_TYPE_KG2458,
+    SET_NUTRITION_SCALE,
 )
 from icomon_kitchen.protocol.food_decode import (
     parse_common_food_body,
@@ -63,8 +64,15 @@ def test_encode_nutrition_value_u24() -> None:
 
 def test_default_nutrition_scale_is_100() -> None:
     assert DEFAULT_NUTRITION_SCALE == 100.0
+    assert SET_NUTRITION_SCALE == 10.0
     assert encode_nutrition_value(50.0) == encode_nutrition_value_u24(5000)
     assert encode_nutrition_value(50.0, scale=1.0) == encode_nutrition_value_u24(50)
+
+
+def test_set_nutrition_default_scale_is_native_times_ten() -> None:
+    facts = [NutritionFact(nutrition_fact_type_from_ordinal(0), 100.0)]
+    payload = build_set_nutrition_payload(0x0000002A, facts)
+    assert payload == b"\x00\x00\x00\x2a\x01\x00" + encode_nutrition_value_u24(1000)
 
 
 def test_set_nutrition_payload_structure() -> None:
@@ -73,12 +81,17 @@ def test_set_nutrition_payload_structure() -> None:
     assert payload == b"\x00\x00\x00\x2a\x01\x00" + encode_nutrition_value_u24(100)
 
 
-def test_set_nutrition_frame_cmd_and_checksum() -> None:
+def test_set_nutrition_frame_uses_split_header() -> None:
     facts = [NutritionFact(nutrition_fact_type_from_ordinal(9), 5.0)]
     frame = build_set_nutrition_frame(1, facts, scale=1.0)
     verify_frame(frame)
     assert frame[-2] == CMD_SET_NUTRITION
     assert frame[1] == DEVICE_TYPE_KG2458
+    payload = frame[2:-2]
+    assert payload[:3] == b"\x00\x09\x00"
+    assert reassemble_split_data_frames([frame]) == b"\x00\x00\x00\x01\x01\x09" + encode_nutrition_value_u24(
+        5
+    )
 
 
 def test_live_d6_split_frames_match_locked_hci_pair() -> None:
@@ -169,10 +182,17 @@ def test_delete_common_foods_payload_structure() -> None:
     assert payload == b"\x02\x00\x00\x00\x09\x02\x00\x00\x00\x0a\x00"
 
 
-def test_delete_common_foods_uses_dc_for_protocol_113() -> None:
+def test_delete_common_foods_uses_dc_split_for_protocol_113() -> None:
     frame = build_delete_common_foods_frame([FoodReference(food_id=1, food_index=0)])
     verify_frame(frame)
     assert frame[-2] == CMD_ALT_DELETE
+    assert reassemble_split_data_frames([frame]) == b"\x01\x00\x00\x00\x01\x00"
+
+
+def test_empty_logical_payload_still_emits_one_split_frame() -> None:
+    frames = encode_split_data_frames(CMD_SET_NUTRITION, b"")
+    assert len(frames) == 1
+    assert reassemble_split_data_frames(frames) == b""
 
 
 def test_delete_common_foods_rejects_long_list() -> None:

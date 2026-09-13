@@ -5,12 +5,13 @@ from __future__ import annotations
 
 import json
 import os
-import tomllib
 import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any
+
+import tomllib
 
 API_VERSION = "2022-11-28"
 LABEL_KEYS = ("name", "color", "description")

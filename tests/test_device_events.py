@@ -107,7 +107,18 @@ def test_parse_weight_fixture_used_in_cache_test() -> None:
 
 
 @pytest.mark.asyncio
-async def test_unhandled_notify_is_logged(caplog: pytest.LogCaptureFixture) -> None:
+async def test_state_ack_is_parsed_not_unhandled(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    device = KitchenScaleDevice("78:66:A5:D3:47:1E", name="MY_SCALE")
+    payload = bytes.fromhex("ac42000200d200a175")
+    with caplog.at_level(logging.INFO, logger="icomon_kitchen.device"):
+        await device._dispatch_notification(payload)
+
+    assert device.latest_ack is not None
+    assert device.latest_ack.command == 0xD2
+    assert "unhandled notify" not in caplog.text
+    assert "ack cmd=0xd2" in caplog.text
     device = KitchenScaleDevice("78:66:A5:D3:47:1E", name="MY_SCALE")
     payload = encode_frame(0xB0, b"\x01")
     with caplog.at_level(logging.INFO, logger="icomon_kitchen.device"):
@@ -138,7 +149,7 @@ async def test_unit_change_is_logged(caplog: pytest.LogCaptureFixture) -> None:
         0xA6,
         (14).to_bytes(2, "big")
         + b"\x00"
-        + bytes([0x00, int(Unit.G)])
+        + bytes([0x00, int(Unit.G) << 4])
         + (1000).to_bytes(3, "big")
         + bytes(9),
     )
@@ -146,7 +157,7 @@ async def test_unit_change_is_logged(caplog: pytest.LogCaptureFixture) -> None:
         0xA6,
         (14).to_bytes(2, "big")
         + b"\x00"
-        + bytes([0x00, int(Unit.OZ)])
+        + bytes([0x00, int(Unit.OZ) << 4])
         + (1000).to_bytes(3, "big")
         + bytes(9),
     )
@@ -157,3 +168,47 @@ async def test_unit_change_is_logged(caplog: pytest.LogCaptureFixture) -> None:
     assert "unit changed G -> OZ" in caplog.text
     assert device.latest_weight is not None
     assert device.latest_weight.unit is Unit.OZ
+
+
+def _a6_frame(*, milligrams: int = 1000, tick: bool = False) -> bytes:
+    data = bytearray(14)
+    data[1] = int(Unit.G) << 4
+    data[2:5] = milligrams.to_bytes(3, "big")
+    if tick:
+        data[13] = 1
+    return encode_frame(0xA6, (14).to_bytes(2, "big") + b"\x00" + bytes(data))
+
+
+@pytest.mark.asyncio
+async def test_subscribe_tick_fires_once_per_press() -> None:
+    device = KitchenScaleDevice("78:66:A5:D3:47:1E", name="MY_SCALE")
+    ticks: list[int] = []
+    unsubscribe = device.subscribe_tick(
+        lambda reading: ticks.append(reading.milligrams)
+    )
+
+    await device._dispatch_notification(_a6_frame(milligrams=250_000))
+    await device._dispatch_notification(_a6_frame(milligrams=250_000, tick=True))
+    await device._dispatch_notification(_a6_frame(milligrams=251_000, tick=True))
+    await device._dispatch_notification(_a6_frame(milligrams=251_000))
+    await device._dispatch_notification(_a6_frame(milligrams=252_000, tick=True))
+
+    assert ticks == [250_000, 252_000]
+    unsubscribe()
+    await device._dispatch_notification(_a6_frame(milligrams=253_000))
+    await device._dispatch_notification(_a6_frame(milligrams=253_000, tick=True))
+    assert ticks == [250_000, 252_000]
+
+
+@pytest.mark.asyncio
+async def test_live_ac_history_fires_tick() -> None:
+    device = KitchenScaleDevice("78:66:A5:D3:47:1E", name="MY_SCALE")
+    ticks: list[tuple[int, int]] = []
+    device.subscribe_tick(
+        lambda reading: ticks.append((reading.milligrams, reading.food_id))
+    )
+    payload = bytes.fromhex(
+        "ac42001100016aa67db6000153d80000043503c389e2ac97"
+    )
+    await device._dispatch_notification(payload)
+    assert ticks == [(87_000, 1077)]

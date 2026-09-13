@@ -217,3 +217,5 @@ __marimo__/
 # AG Kit install artifacts (managed .agents/ is committed)
 .temp_ag_kit/
 .ag-kit-backups/
+
+extract/

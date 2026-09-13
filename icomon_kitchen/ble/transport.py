@@ -61,6 +61,17 @@ class BleTransport:
         """Return whether the BLE link is active."""
         return self._client is not None and self._client.is_connected
 
+    @property
+    def att_mtu(self) -> int:
+        """Negotiated ATT MTU, or 23 when the backend has not reported one."""
+        client = self._client
+        if client is None:
+            return 23
+        size = getattr(client, "mtu_size", None)
+        if isinstance(size, int) and size >= 23:
+            return size
+        return 23
+
     async def connect(self) -> None:
         """Connect and subscribe to scale notifications."""
         if self.connected:
@@ -74,11 +85,34 @@ class BleTransport:
             _LOGGER.info("enabling notifications on %s", self._notify_uuid_str)
             await client.start_notify(self._notify_uuid_str, self._on_notify)
             self._notify_started = True
+            await self._refresh_att_mtu(client)
             _LOGGER.info("GATT session ready on %s", self.address)
         except BaseException:
             _LOGGER.debug("connect failed for %s", self.address, exc_info=True)
             await self.disconnect()
             raise
+
+    def has_service(self, uuid: UUID) -> bool:
+        """Return whether a GATT service UUID is present on the connected device."""
+        return self._gatt_has_uuid(uuid, chars=False)
+
+    def has_characteristic(self, uuid: UUID) -> bool:
+        """Return whether a GATT characteristic UUID is present."""
+        return self._gatt_has_uuid(uuid, chars=True)
+
+    def _gatt_has_uuid(self, uuid: UUID, *, chars: bool) -> bool:
+        client = self._client
+        if client is None:
+            return False
+        key = _uuid_key(uuid)
+        for service in client.services:
+            if not chars and _uuid_key(service.uuid) == key:
+                return True
+            if chars:
+                for characteristic in service.characteristics:
+                    if _uuid_key(characteristic.uuid) == key:
+                        return True
+        return False
 
     async def disconnect(self) -> None:
         """Unsubscribe and close the BLE connection."""
@@ -197,6 +231,17 @@ class BleTransport:
             self._write_with_response,
         )
 
+    async def _refresh_att_mtu(self, client: BleakClient) -> None:
+        """Copy BlueZ's negotiated GATT MTU onto the Bleak client when possible."""
+        backend = getattr(client, "_backend", None)
+        if backend is None:
+            return
+        mtu = await _bluez_gatt_mtu(backend)
+        if mtu is None or mtu < 23:
+            return
+        backend._mtu_size = mtu
+        _LOGGER.info("BlueZ GATT MTU=%s", mtu)
+
     def _require_client(self) -> BleakClient:
         if self._client is None or not self._client.is_connected:
             raise NotConnectedError("call connect() before using the transport")
@@ -272,3 +317,30 @@ def _log_gatt_table(services: BleakGATTServiceCollection) -> None:
                 characteristic.uuid,
                 properties,
             )
+
+
+async def _bluez_gatt_mtu(backend: object) -> int | None:
+    """Return BlueZ's per-characteristic MTU property when the backend exposes it."""
+    try:
+        from bleak.backends.bluezdbus import defs
+        from bleak.backends.bluezdbus.manager import get_global_bluez_manager
+    except ImportError:
+        return None
+    device_path = getattr(backend, "_device_path", None)
+    if not isinstance(device_path, str) or not device_path:
+        return None
+    try:
+        manager = await get_global_bluez_manager()
+        properties = getattr(manager, "_properties", {})
+        for path, ifaces in properties.items():
+            if not str(path).startswith(device_path):
+                continue
+            gatt = ifaces.get(defs.GATT_CHARACTERISTIC_INTERFACE)
+            if not isinstance(gatt, dict):
+                continue
+            mtu = gatt.get("MTU")
+            if isinstance(mtu, int) and mtu >= 23:
+                return mtu
+    except Exception:
+        _LOGGER.debug("BlueZ MTU lookup failed", exc_info=True)
+    return None

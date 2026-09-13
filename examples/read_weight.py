@@ -1,86 +1,114 @@
 #!/usr/bin/env python3
-"""Example: connect to a MY_SCALE kitchen scale and print live weight."""
+"""Print live weight (optional tare / unit / send-food)."""
 
 from __future__ import annotations
 
 import argparse
 import asyncio
-import logging
+import sys
+from pathlib import Path
 
-from icomon_kitchen import KitchenScaleClient, Unit, WeightReading
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from examples._common import add_device_args, configure_logging, open_device, run
+from icomon_kitchen import (
+    CommonFood,
+    CompatibilityFlag,
+    NutritionFact,
+    NutritionFactType,
+    Unit,
+    WeightReading,
+)
 
 
-def _configure_logging(verbose: bool) -> None:
-    level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
-    if verbose:
-        logging.getLogger("bleak").setLevel(logging.DEBUG)
+def _demo_facts() -> list[NutritionFact]:
+    # Wire types that appeared on a live D6 write (0, 1, 2, 4, 5).
+    return [
+        NutritionFact(NutritionFactType.CALORIE, 100.0),
+        NutritionFact(NutritionFactType.TOTAL_CALORIE, 100.0),
+        NutritionFact(NutritionFactType.TOTAL_FAT, 5.0),
+        NutritionFact(NutritionFactType.TOTAL_CARBOHYDRATE, 20.0),
+        NutritionFact(NutritionFactType.TOTAL_FIBER, 5.0),
+    ]
 
 
 async def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--name", default="MY_SCALE", help="BLE advertised name")
-    parser.add_argument("--address", help="Optional BLE MAC address")
-    parser.add_argument("--seconds", type=float, default=30.0, help="Run duration")
+    add_device_args(parser)
+    parser.add_argument("--seconds", type=float, default=20.0)
+    parser.add_argument("--tare", action="store_true")
+    parser.add_argument("--unit", choices=[unit.name for unit in Unit])
     parser.add_argument(
-        "-v",
-        "--verbose",
+        "--send-food",
         action="store_true",
-        help="Log GATT writes/notifies (DEBUG) including bleak",
+        help="Upload a food (D6+D5) before weigh/✓; re-upload after each tick",
     )
-    parser.add_argument(
-        "--unit",
-        choices=[unit.name for unit in Unit],
-        help="Optionally switch unit after connect",
-    )
+    parser.add_argument("--food-id", type=int, default=42)
+    parser.add_argument("--food-name", default="oats")
     args = parser.parse_args()
-    _configure_logging(args.verbose)
+    configure_logging(args.verbose)
 
-    client = KitchenScaleClient()
-    device = await client.scan_for_device(name=args.name, address=args.address)
-    print(f"Connecting to {device.info.ble_name} at {device.info.address}…")
+    device = await open_device(args)
+    print(f"connecting {device.info.ble_name} {device.info.address}")
 
     async with device:
-        print(
-            f"Connected. Waiting up to {args.seconds:g}s for weight notifies "
-            "(place an item on the scale)…"
-        )
         if args.unit is not None:
             await device.set_unit(Unit[args.unit])
-            print(f"Unit set to {args.unit}")
-
-        received = 0
-
-        def on_weight(reading: WeightReading) -> None:
-            nonlocal received
-            received += 1
+            print(f"unit {args.unit}")
+        if args.tare:
+            await device.tare()
+            print("tare sent")
+        if args.send_food:
+            facts = _demo_facts()
+            food = CommonFood(
+                food_id=args.food_id,
+                name=args.food_name,
+                weight=100,
+                facts=tuple(facts),
+            )
+            caps = device.capabilities
+            named = bool(
+                caps is not None and caps.supports(CompatibilityFlag.COMMON_FOOD)
+            )
             print(
-                f"{reading.value:.2f} {reading.unit.symbol} "
-                f"({reading.milligrams} mg, unit={reading.unit.name}, "
-                f"stable={reading.stable})"
+                "named-food D6 "
+                + ("advertised" if named else "not advertised; sending anyway")
+            )
+            await asyncio.sleep(0.5)
+            await device.set_common_food(food)
+            await device.set_nutrition(args.food_id, facts)
+            print(
+                f"uploaded food_id={args.food_id} "
+                f"(D6 name={args.food_name!r} may not appear on LCD); "
+                "weigh, press ✓ once, then upload again before the next ✓ "
+                f"(leave this running, default {args.seconds:.0f}s)"
             )
 
-        unsubscribe = device.subscribe_weight(on_weight)
+        def on_weight(reading: WeightReading) -> None:
+            print(
+                f"{reading.value:.2f} {reading.unit.symbol}  "
+                f"stable={reading.stable}  "
+                f"tare={reading.is_tare}  "
+                f"food={reading.food_id}"
+            )
+
+        def on_tick(reading: WeightReading) -> None:
+            print(
+                f"tick {reading.value:.2f} {reading.unit.symbol}  "
+                f"food={reading.food_id}  "
+                "(re-upload food before the next ✓)"
+            )
+
+        stop_weight = device.subscribe_weight(on_weight)
+        stop_tick = device.subscribe_tick(on_tick)
         try:
             await asyncio.sleep(args.seconds)
         finally:
-            unsubscribe()
-
-        if received == 0:
-            print(
-                "No weight notifications received. Re-run with -v to inspect "
-                "GATT traffic."
-            )
-            return 1
-
+            stop_weight()
+            stop_tick()
     return 0
 
 
 if __name__ == "__main__":
-    try:
-        raise SystemExit(asyncio.run(main()))
-    except KeyboardInterrupt:
-        raise SystemExit(130) from None
+    run(main)

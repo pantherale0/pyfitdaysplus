@@ -1,82 +1,41 @@
 #!/usr/bin/env python3
-"""Example: listen for on-device “Hello Vita” food selections from MY_SCALE."""
+"""Listen for on-device “Hello Vita” food-selection notifies."""
 
 from __future__ import annotations
 
 import argparse
 import asyncio
-import logging
+import sys
+from pathlib import Path
 
-from icomon_kitchen import (
-    VOICE_WAKE_PHRASE,
-    DeviceCapabilities,
-    FoodInfoNotify,
-    KitchenScaleClient,
-)
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-
-def _configure_logging(verbose: bool) -> None:
-    level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
-    if verbose:
-        logging.getLogger("bleak").setLevel(logging.DEBUG)
-
-
-def on_capabilities(caps: DeviceCapabilities) -> None:
-    print(
-        f"capabilities flags=0x{caps.function_flags:08x} "
-        f"voice_assistant={caps.voice_assistant} "
-        f"voice_language={caps.voice_language}"
-    )
-
-
-def on_voice_food(notify: FoodInfoNotify) -> None:
-    print(f"food notify 0x{notify.raw_type:02X}: {notify.raw_payload.hex()}")
-    if notify.count is not None:
-        print(f"  count={notify.count}")
-    for food in notify.foods:
-        print(f"  food_id={food.food_id} food_index={food.food_index}")
-    if notify.count is None and not notify.foods:
-        print("  (decoded foods unavailable until 0xAF wire map is verified)")
+from examples._common import add_device_args, configure_logging, open_device, run
+from icomon_kitchen import VOICE_WAKE_PHRASE, FoodInfoNotify
 
 
 async def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--name", default="MY_SCALE", help="BLE advertised name")
-    parser.add_argument("--address", help="Optional BLE MAC address")
-    parser.add_argument("--seconds", type=float, default=60.0, help="Run duration")
-    parser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        help="Log GATT writes/notifies (DEBUG) including bleak",
-    )
+    add_device_args(parser)
+    parser.add_argument("--seconds", type=float, default=60.0)
     args = parser.parse_args()
-    _configure_logging(args.verbose)
+    configure_logging(args.verbose)
 
-    client = KitchenScaleClient()
-    device = await client.scan_for_device(name=args.name, address=args.address)
-    print(f"Connecting to {device.info.ble_name} at {device.info.address}…")
+    device = await open_device(args)
+    print(f"connecting {device.info.ble_name} {device.info.address}")
+    print(f"say {VOICE_WAKE_PHRASE!r} at the scale")
 
-    device.set_capabilities_handler(on_capabilities)
-    device.set_food_selection_handler(on_voice_food)
+    def on_food(notify: FoodInfoNotify) -> None:
+        print(f"0x{notify.raw_type:02x} {notify.raw_payload.hex()}")
+        for food in notify.foods:
+            print(f"  id={food.food_id} index={food.food_index}")
 
+    device.subscribe_food_selection(on_food)
     async with device:
-        print(
-            f"Connected. Say {VOICE_WAKE_PHRASE!r} on the scale "
-            "(English, on-device ASR — no phone mic)."
-        )
-        print(f"Waiting {args.seconds:g}s for food-selection notifies (0xAF)…")
         await asyncio.sleep(args.seconds)
-
     return 0
 
 
 if __name__ == "__main__":
-    try:
-        raise SystemExit(asyncio.run(main()))
-    except KeyboardInterrupt:
-        raise SystemExit(130) from None
+    run(main)

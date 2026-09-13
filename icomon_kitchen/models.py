@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import IntEnum, IntFlag
 from typing import Literal
 
@@ -58,16 +58,109 @@ class ProtocolVersion(IntEnum):
 
 
 class DeviceFunction(IntFlag):
-    """
-    Named bits from ``ICConstant.ICDeviceFunction`` (vendor SDK).
+    """Vendor ``ICDeviceFunction`` indexes as ``1 << n`` (live A0 ``0x00fc4f02``)."""
 
-    Bit positions are **not verified on the wire** yet; treat ``function_flags``
-    on :class:`DeviceCapabilities` as authoritative and use these names only as
-    helpers once offsets are confirmed against ``funInfo`` captures.
+    WIFI = 1 << 0
+    VOICE_ASSISTANT = 1 << 1
+    SOUND_EFFECT = 1 << 2
+    VOLUME = 1 << 3
+    VOICE_LANGUAGE = 1 << 4
+    UPLOAD_BODYFAT = 1 << 5
+    WEATHER = 1 << 6
+    RESTART = 1 << 7
+    FACTORY = 1 << 8
+    SERVER_URL = 1 << 9
+    NICK_NAME = 1 << 10
+    NICK_NAME_IMG = 1 << 11
+    SET_UI_ITEM = 1 << 12
+    SCALE_LIGHT = 1 << 13
+    BABY_MODE = 1 << 14
+    HEIGHT_UNIT = 1 << 15
+    IMPEDANCE = 1 << 16
+    SCAN_WIFI = 1 << 17
+    SMART_MODE = 1 << 18
+    BATTERY = 1 << 19
+    NEW_USER_MANAGER = 1 << 20
+    SHOW_USER_INDEX = 1 << 21
+    HTTPS_CERTIFICATE = 1 << 22
+    WAKE_UP = 1 << 23
+    AVATAR = 1 << 24
+    HEARTBEAT = 1 << 25
+    ECG = 1 << 26
+    EIGHT_ELECTRODE = 1 << 32
+
+
+class CompatibilityFlag(IntFlag):
+    """
+    Library-facing features for a connected scale.
+
+    Vendor ``funInfo`` bits map onto these; GATT discovery and live notifies
+    add the rest. Use ``feature in caps.compatibility`` or ``caps.supports``.
     """
 
-    VOICE_ASSISTANT = 1 << 12
-    VOICE_LANGUAGE = 1 << 13
+    FUN_INFO = 1 << 0
+    WEIGHT = 1 << 1
+    WIFI = 1 << 2
+    VOICE_ASSISTANT = 1 << 3
+    VOICE_LANGUAGE = 1 << 4
+    SOUND_EFFECT = 1 << 5
+    VOLUME = 1 << 6
+    NUTRITION = 1 << 7
+    COMMON_FOOD = 1 << 8
+    INDEXED_FOOD = 1 << 9
+    DELETE_FOOD = 1 << 10
+    FILE_TRANSFER = 1 << 11
+    OTA_DFU = 1 << 12
+    NICK_NAME = 1 << 13
+    BABY_MODE = 1 << 14
+    BATTERY = 1 << 15
+    WAKE_UP = 1 << 16
+
+
+_FUNCTION_COMPATIBILITY: tuple[tuple[DeviceFunction, CompatibilityFlag], ...] = (
+    (DeviceFunction.WIFI, CompatibilityFlag.WIFI),
+    (DeviceFunction.VOICE_ASSISTANT, CompatibilityFlag.VOICE_ASSISTANT),
+    (DeviceFunction.VOICE_LANGUAGE, CompatibilityFlag.VOICE_LANGUAGE),
+    (DeviceFunction.SOUND_EFFECT, CompatibilityFlag.SOUND_EFFECT),
+    (DeviceFunction.VOLUME, CompatibilityFlag.VOLUME),
+    (DeviceFunction.NICK_NAME, CompatibilityFlag.NICK_NAME),
+    (DeviceFunction.BABY_MODE, CompatibilityFlag.BABY_MODE),
+    (DeviceFunction.BATTERY, CompatibilityFlag.BATTERY),
+    (DeviceFunction.WAKE_UP, CompatibilityFlag.WAKE_UP),
+)
+
+# Fitdays+ ``SetKitchenScaleCMD`` gates in ICKitchenScaleGeneralWorker.
+_SDK_COMMAND_GATES: tuple[tuple[DeviceFunction, CompatibilityFlag], ...] = (
+    (DeviceFunction.VOICE_ASSISTANT, CompatibilityFlag.NUTRITION),
+    (DeviceFunction.RESTART, CompatibilityFlag.COMMON_FOOD),
+    (DeviceFunction.SOUND_EFFECT, CompatibilityFlag.INDEXED_FOOD),
+    (DeviceFunction.SOUND_EFFECT, CompatibilityFlag.DELETE_FOOD),
+)
+
+DISCOVERED_COMPATIBILITY = (
+    CompatibilityFlag.FUN_INFO
+    | CompatibilityFlag.WEIGHT
+    | CompatibilityFlag.FILE_TRANSFER
+    | CompatibilityFlag.OTA_DFU
+)
+
+
+def compatibility_from_functions(functions: DeviceFunction) -> CompatibilityFlag:
+    """Map vendor funInfo bits (and SDK command gates) to library flags."""
+    flags = CompatibilityFlag(0)
+    for source, dest in (*_FUNCTION_COMPATIBILITY, *_SDK_COMMAND_GATES):
+        if functions & source:
+            flags |= dest
+    return flags
+
+
+def named_compatibility_flags(
+    flags: CompatibilityFlag,
+) -> tuple[CompatibilityFlag, ...]:
+    """Return each enabled named ``CompatibilityFlag`` member (no composites)."""
+    return tuple(
+        flag for flag in CompatibilityFlag if flag.value != 0 and flags & flag == flag
+    )
 
 
 VOICE_WAKE_PHRASE = "Hello Vita"
@@ -84,7 +177,15 @@ class ScannedDevice:
 
 @dataclass(frozen=True, slots=True)
 class WeightReading:
-    """One live weight sample from the scale."""
+    """
+    One live weight sample from the scale.
+
+    ``food_id`` is the firmware catalog key on A6 (live KG2458: 1077 → LCD
+    “MILK WHOLE”). Treat it as opaque: it is not a UK composition-table code.
+    The on-scale default list appears to follow USDA SR NDB numbers (1077 =
+    01077 whole milk), whose recipes and macros differ from UK CoFID /
+    McCance & Widdowson foods of the same English name.
+    """
 
     grams: float
     milligrams: int
@@ -92,33 +193,89 @@ class WeightReading:
     stable: bool
     raw_type: int
     raw_payload: bytes
+    is_negative: bool = False
+    is_tare: bool = False
+    food_id: int = 0
+    user_id: int = 0
 
     @property
     def value(self) -> float:
         """Numeric value in :attr:`unit` (mass still stored as milligrams)."""
-        return self.grams / _GRAMS_PER_UNIT[self.unit]
+        signed = -self.grams if self.is_negative else self.grams
+        return signed / _GRAMS_PER_UNIT[self.unit]
+
+    @property
+    def isTare(self) -> bool:
+        """SDK-style alias for :attr:`is_tare`."""
+        return self.is_tare
+
+
+@dataclass(frozen=True, slots=True)
+class CommandAck:
+    """Parsed ``0xA1`` command acknowledgement from the scale."""
+
+    command: int
+    state: int
+    raw_payload: bytes
+
+
+@dataclass(frozen=True, slots=True)
+class BatteryInfo:
+    """
+    Charge reported in ``funInfo`` (``0xA0``).
+
+    Fitdays+ only forwards this when nested ``batteryType`` is 1 or 2 (percent
+    or voltage-style). Live KG2458 frames use type 2 and a 0-100 percent byte.
+    """
+
+    percent: int
+    battery_type: int
 
 
 @dataclass(frozen=True, slots=True)
 class DeviceCapabilities:
-    """Capabilities reported in a ``funInfo`` (0xA0) notification."""
+    """Capabilities from ``funInfo`` (0xA0) plus GATT / live discovery."""
 
-    function_flags: int
-    raw_payload: bytes
+    function_flags: DeviceFunction
+    compatibility: CompatibilityFlag
+    raw_payload: bytes = b""
+    battery: BatteryInfo | None = None
 
-    def supports(self, function: DeviceFunction) -> bool:
-        """Return whether ``function`` appears enabled in ``function_flags``."""
-        return bool(self.function_flags & function)
+    def supports(self, feature: DeviceFunction | CompatibilityFlag) -> bool:
+        """Return whether ``feature`` is enabled (vendor bit or library flag)."""
+        if isinstance(feature, CompatibilityFlag):
+            return bool(self.compatibility & feature)
+        return bool(self.function_flags & feature)
+
+    def with_discovered(self, extra: CompatibilityFlag) -> DeviceCapabilities:
+        """Return a copy with additional discovered compatibility bits."""
+        if extra & self.compatibility == extra:
+            return self
+        return replace(self, compatibility=self.compatibility | extra)
+
+    def absorb_discovered(
+        self, previous: DeviceCapabilities | None
+    ) -> DeviceCapabilities:
+        """Keep WEIGHT / FFB4 / DFU bits from an earlier probe of the same session."""
+        if previous is None:
+            return self
+        extra = previous.compatibility & DISCOVERED_COMPATIBILITY
+        return self.with_discovered(extra)
+
+    @property
+    def flags(self) -> tuple[CompatibilityFlag, ...]:
+        """Enabled named compatibility flags."""
+        return named_compatibility_flags(self.compatibility)
 
     @property
     def voice_assistant(self) -> bool:
         """Return whether the scale reports on-device voice ASR."""
-        return self.supports(DeviceFunction.VOICE_ASSISTANT)
+        return self.supports(CompatibilityFlag.VOICE_ASSISTANT)
 
     @property
     def voice_language(self) -> bool:
         """Configurable voice language (SDK: ``ICDeviceFunctionVoiceLanguage``)."""
-        return self.supports(DeviceFunction.VOICE_LANGUAGE)
+        return self.supports(CompatibilityFlag.VOICE_LANGUAGE)
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,24 +333,24 @@ SettingKind = Literal["tare", "power", "unit", "weight"]
 
 
 class NutritionFactType(IntEnum):
-    """``ICKitchenScaleNutritionFactType`` ordinals (0..15)."""
+    """Fitdays+ ``ICKitchenScaleNutritionFactType`` ordinals (0..15)."""
 
     CALORIE = 0
     TOTAL_CALORIE = 1
     TOTAL_FAT = 2
-    SATURATED_FAT = 3
-    TRANS_FAT = 4
-    CHOLESTEROL = 5
-    SODIUM = 6
-    TOTAL_CARBOHYDRATE = 7
-    DIETARY_FIBER = 8
-    SUGAR = 9
+    TOTAL_PROTEIN = 3
+    TOTAL_CARBOHYDRATE = 4
+    TOTAL_FIBER = 5
+    TOTAL_CHOLESTEROL = 6
+    TOTAL_SODIUM = 7
+    TOTAL_SUGAR = 8
+    FAT = 9
     PROTEIN = 10
-    VITAMIN_A = 11
-    VITAMIN_C = 12
-    CALCIUM = 13
-    IRON = 14
-    RESERVED = 15
+    CARBOHYDRATE = 11
+    FIBER = 12
+    CHOLESTEROL = 13
+    SODIUM = 14
+    SUGAR = 15
 
 
 @dataclass(frozen=True, slots=True)
@@ -222,4 +379,3 @@ class FoodReference:
 
     food_id: int
     food_index: int
-

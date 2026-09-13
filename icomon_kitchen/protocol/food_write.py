@@ -14,6 +14,7 @@ from .constants import (
     CMD_SET_NUTRITION,
     DEFAULT_MTU,
     DEVICE_TYPE_KG2458,
+    SET_NUTRITION_SCALE,
     SPLIT_DATA_FRAME_BODY_MAX,
     SPLIT_DATA_HEADER_LEN,
 )
@@ -57,8 +58,33 @@ def build_set_nutrition_payload(
     Build the inner payload for cmd **213 / 0xD5**.
 
     Layout: ``foodId u32 BE | count u8 | (type u8 + value u24)…``
+
+    Native D5 scaling is :data:`~icomon_kitchen.protocol.constants.SET_NUTRITION_SCALE`
+    (×10). D6/D7 keep ×100.
     """
-    return _write_int_be(food_id) + encode_nutrition_facts(tuple(facts), scale=scale)
+    multiplier = SET_NUTRITION_SCALE if scale is None else scale
+    return _write_int_be(food_id) + encode_nutrition_facts(
+        tuple(facts),
+        scale=multiplier,
+    )
+
+
+def build_set_nutrition_frames(
+    food_id: int,
+    facts: Sequence[NutritionFact],
+    *,
+    device_type: int = DEVICE_TYPE_KG2458,
+    mtu: int = DEFAULT_MTU,
+    scale: float | None = None,
+) -> list[bytes]:
+    """Return framed **213 / D5** splitData command(s)."""
+    payload = build_set_nutrition_payload(food_id, facts, scale=scale)
+    return encode_split_data_frames(
+        CMD_SET_NUTRITION,
+        payload,
+        device_type=device_type,
+        frame_body_max=mtu,
+    )
 
 
 def build_set_nutrition_frame(
@@ -66,11 +92,17 @@ def build_set_nutrition_frame(
     facts: Sequence[NutritionFact],
     *,
     device_type: int = DEVICE_TYPE_KG2458,
+    mtu: int = DEFAULT_MTU,
     scale: float | None = None,
 ) -> bytes:
-    """Return one framed **213 / D5** command."""
-    payload = build_set_nutrition_payload(food_id, facts, scale=scale)
-    return encode_frame(CMD_SET_NUTRITION, payload, device_type=device_type)
+    """Return the first **213 / D5** splitData frame (full set when it fits)."""
+    return build_set_nutrition_frames(
+        food_id,
+        facts,
+        device_type=device_type,
+        mtu=mtu,
+        scale=scale,
+    )[0]
 
 
 def build_common_food_body(
@@ -132,10 +164,13 @@ def encode_split_data_frames(
 
     max_slice = split_data_max_slice(frame_body_max=frame_body_max)
     total_len = len(logical_payload)
-    slices = [
-        logical_payload[index : index + max_slice]
-        for index in range(0, len(logical_payload), max_slice)
-    ]
+    if not logical_payload:
+        slices = [b""]
+    else:
+        slices = [
+            logical_payload[index : index + max_slice]
+            for index in range(0, len(logical_payload), max_slice)
+        ]
     frames: list[bytes] = []
     for sequence, slice_bytes in enumerate(slices):
         if sequence > 0xFF:
@@ -202,17 +237,39 @@ def build_delete_common_foods_payload(
     return bytes(body)
 
 
-def build_delete_common_foods_frame(
+def build_delete_common_foods_frames(
     entries: Sequence[FoodReference],
     *,
     device_type: int = DEVICE_TYPE_KG2458,
+    mtu: int = DEFAULT_MTU,
     use_alt_delete: bool = True,
-) -> bytes:
+) -> list[bytes]:
     """
-    Return one framed delete command.
+    Return framed delete command(s).
 
     Protocol **113** uses **220 / DC** when ``use_alt_delete`` is true (default).
     """
     cmd = CMD_ALT_DELETE if use_alt_delete else CMD_DELETE_COMMON_FOOD
     payload = build_delete_common_foods_payload(entries)
-    return encode_frame(cmd, payload, device_type=device_type)
+    return encode_split_data_frames(
+        cmd,
+        payload,
+        device_type=device_type,
+        frame_body_max=mtu,
+    )
+
+
+def build_delete_common_foods_frame(
+    entries: Sequence[FoodReference],
+    *,
+    device_type: int = DEVICE_TYPE_KG2458,
+    mtu: int = DEFAULT_MTU,
+    use_alt_delete: bool = True,
+) -> bytes:
+    """Return the first delete splitData frame (full set when it fits)."""
+    return build_delete_common_foods_frames(
+        entries,
+        device_type=device_type,
+        mtu=mtu,
+        use_alt_delete=use_alt_delete,
+    )[0]

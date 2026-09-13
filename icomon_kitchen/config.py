@@ -25,3 +25,4 @@ class Config:
     mtu: int = DEFAULT_MTU
     scan_timeout: float = 10.0
     app_reply_body: bytes = b"\x00\x02\x00\xa0\x00"
+    fun_info_timeout: float = 3.0

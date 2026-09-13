@@ -112,6 +112,7 @@ class KitchenScaleClient:
             mtu=self.config.mtu,
             scan_timeout=self.config.scan_timeout,
             app_reply_body=self.config.app_reply_body,
+            fun_info_timeout=self.config.fun_info_timeout,
         )
 
     async def connect(self) -> None:
