@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from ..exceptions import ProtocolError
 from ..models import (
@@ -145,7 +145,7 @@ def parse_history_weight_records(payload: bytes) -> tuple[WeightReading, ...]:
         user_id = int.from_bytes(record[12:16], "big")
         recorded_at = datetime.fromtimestamp(
             int.from_bytes(record[0:4], "big"),
-            tz=timezone.utc,
+            tz=UTC,
         )
         readings.append(
             WeightReading(
