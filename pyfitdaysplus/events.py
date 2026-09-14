@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from enum import Enum
+from enum import StrEnum
 
 Unsubscribe = Callable[[], None]
 Handler = Callable[..., None]
 
 
-class Event(str, Enum):
+class Event(StrEnum):
     """Notification kinds that :class:`~pyfitdaysplus.device.Device` can emit."""
 
     WEIGHT = "weight"
