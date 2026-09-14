@@ -39,8 +39,9 @@ ruff format .
 
 ## Architecture
 
-- `pyfitdaysplus/client.py` — high-level async `Client`
-- `pyfitdaysplus/config.py` — `Config` and `COMM_PROTOCOL`
+- `pyfitdaysplus/device.py` — public `Device` API (takes a bleak `BLEDevice`)
+- `pyfitdaysplus/ble/gatt.py` — FFB0 characteristic discovery
+- `pyfitdaysplus/config.py` — `COMM_PROTOCOL`
 - `tests/` — pytest suite (Sybil doctests via `conftest.py`)
 
 ## Conventions
@@ -48,7 +49,9 @@ ruff format .
 - Follow [conventional commits](https://www.conventionalcommits.org)
 - Ruff for lint/format; mypy configured in `pyproject.toml`
 - pytest-asyncio for async tests
-- Keep GATT I/O in `ble/transport.py`; expose behavior through `Client` / `Device`
+- Keep GATT discovery in `ble/gatt.py`; expose behavior through `Device`
+- Scanning/discovery is the caller's job (Home Assistant, BleakScanner, …)
+- Connections use bleak-retry-connector `establish_connection`
 
 ## Useful AG Kit skills
 

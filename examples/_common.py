@@ -7,7 +7,9 @@ import asyncio
 import logging
 from collections.abc import Callable, Coroutine
 
-from pyfitdaysplus import Device, KitchenScaleClient
+from bleak import BleakScanner
+
+from pyfitdaysplus import Device
 
 DEFAULT_NAME = "MY_SCALE"
 
@@ -33,8 +35,17 @@ def configure_logging(verbose: bool) -> None:
 
 
 async def open_device(args: argparse.Namespace) -> Device:
-    client = KitchenScaleClient()
-    return await client.scan_for_device(name=args.name, address=args.address)
+    if args.address:
+        ble_device = await BleakScanner.find_device_by_address(args.address)
+        if ble_device is None:
+            msg = f"no BLE device found at {args.address}"
+            raise SystemExit(msg)
+    else:
+        ble_device = await BleakScanner.find_device_by_name(args.name)
+        if ble_device is None:
+            msg = f"no BLE device found with name {args.name!r}"
+            raise SystemExit(msg)
+    return Device(ble_device)
 
 
 def run(main: Callable[[], Coroutine[object, object, int]]) -> None:

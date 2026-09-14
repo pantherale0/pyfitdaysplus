@@ -8,16 +8,24 @@ from .constants import (
     CMD_READ_HISTORY,
     CMD_SETTING,
     DEVICE_TYPE_KG2458,
+    NOTIFY_FUN_INFO,
 )
 from .framing import encode_frame
 
 
 def build_app_reply(
-    reply_body: bytes = b"\x00\x02\x00\xa0\x00",
+    reply_body: bytes | None = None,
     *,
+    notify_type: int = NOTIFY_FUN_INFO,
     device_type: int = DEVICE_TYPE_KG2458,
 ) -> bytes:
-    """Build the verified ``app_reply`` frame (cmd 209 / 0xD1)."""
+    """
+    Build a ``app_reply`` frame (cmd 209 / 0xD1).
+
+    Live KG2458: funInfo handshake ``00 a0 00``; history ``0xAC`` ack ``00 ac 00``.
+    """
+    if reply_body is None:
+        reply_body = bytes([0x00, 0x02, 0x00, notify_type & 0xFF, 0x00])
     return encode_frame(CMD_APP_REPLY, reply_body, device_type=device_type)
 
 

@@ -6,15 +6,15 @@ import asyncio
 
 import pytest
 
-from pyfitdaysplus.device import Device
 from pyfitdaysplus.events import Event
 from pyfitdaysplus.models import DeviceFunction, FoodInfo
 from pyfitdaysplus.protocol.constants import NOTIFY_FOOD_INFO
+from tests.factories import scale
 
 
 @pytest.mark.asyncio
 async def test_device_dispatches_food_and_capability_notifications() -> None:
-    device = Device("78:66:A5:D3:47:1E", name="MY_SCALE")
+    device = scale()
     raw_payloads: list[bytes] = []
     flags: list[int] = []
 
@@ -34,7 +34,7 @@ async def test_device_dispatches_food_and_capability_notifications() -> None:
 
 @pytest.mark.asyncio
 async def test_food_selections_iterator_receives_notify() -> None:
-    device = Device("78:66:A5:D3:47:1E", name="MY_SCALE")
+    device = scale()
     payload = bytes([0xAF, 0x01, 0x2C, 0x00, 0x10, 0x20, 0x30])
 
     async def send_food() -> None:

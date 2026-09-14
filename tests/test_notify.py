@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 
 from pyfitdaysplus.exceptions import ProtocolError
@@ -243,3 +245,4 @@ def test_parse_live_ac_history_confirm() -> None:
     assert reading.food_id == 1077
     assert reading.user_id == 0x03C389E2
     assert reading.stable is True
+    assert reading.recorded_at == datetime(2026, 9, 13, 10, 40, 54, tzinfo=timezone.utc)

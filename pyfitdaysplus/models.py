@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from enum import IntEnum, IntFlag
 
 
@@ -166,15 +167,6 @@ VOICE_WAKE_PHRASE = "Hello Vita"
 
 
 @dataclass(frozen=True, slots=True)
-class ScannedDevice:
-    """A BLE scale discovered during scanning."""
-
-    name: str
-    address: str
-    rssi: int | None = None
-
-
-@dataclass(frozen=True, slots=True)
 class WeightReading:
     """
     One live weight sample from the scale.
@@ -184,6 +176,9 @@ class WeightReading:
     The on-scale default list appears to follow USDA SR NDB numbers (1077 =
     01077 whole milk), whose recipes and macros differ from UK CoFID /
     McCance & Widdowson foods of the same English name.
+
+    History ``0xAC`` records also set ``recorded_at`` from the scale's unix
+    timestamp. Live A6 notifies leave it ``None``.
     """
 
     milligrams: int
@@ -195,6 +190,7 @@ class WeightReading:
     is_tare: bool = False
     food_id: int = 0
     user_id: int = 0
+    recorded_at: datetime | None = None
 
     @property
     def grams(self) -> float:
@@ -328,6 +324,10 @@ class CommonFood:
     icon: bytes = b""
     weight: int = 0
     facts: tuple[NutritionFact, ...] = ()
+
+
+# Live KG2458 clear after food-weigh: foodId=0, empty name, 100 g, no facts.
+FOOD_WEIGH_CLEAR = CommonFood(food_id=0, name="", weight=100, facts=())
 
 
 @dataclass(frozen=True, slots=True)

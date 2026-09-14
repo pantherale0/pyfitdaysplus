@@ -1,16 +1,15 @@
 """pyfitdaysplus — async BLE client for ICOMON / Fitdays+ kitchen scales."""
 
-from .client import Client, KitchenScaleClient
-from .config import COMM_PROTOCOL, Config
+from .config import COMM_PROTOCOL
 from .device import Device, Unsubscribe
 from .events import Event
 from .exceptions import (
-    DeviceNotFoundError,
     IcomonKitchenError,
     NotConnectedError,
     ProtocolError,
 )
 from .models import (
+    FOOD_WEIGH_CLEAR,
     VOICE_WAKE_PHRASE,
     BatteryInfo,
     CommandAck,
@@ -25,7 +24,6 @@ from .models import (
     NutritionFactType,
     ProtocolVersion,
     ScaleInfo,
-    ScannedDevice,
     Unit,
     WeightReading,
 )
@@ -42,31 +40,27 @@ from .protocol.nutrition import encode_nutrition_facts, encode_nutrition_value_u
 __all__ = [
     "COMM_PROTOCOL",
     "DEFAULT_NUTRITION_SCALE",
+    "FOOD_WEIGH_CLEAR",
     "SET_NUTRITION_SCALE",
     "VOICE_WAKE_PHRASE",
     "BatteryInfo",
-    "Client",
     "CommandAck",
     "CommonFood",
     "CompatibilityFlag",
-    "Config",
     "Device",
     "DeviceCapabilities",
     "DeviceFunction",
-    "DeviceNotFoundError",
     "Event",
     "FoodInfo",
     "FoodInfoNotify",
     "FoodReference",
     "IcomonKitchenError",
-    "KitchenScaleClient",
     "NotConnectedError",
     "NutritionFact",
     "NutritionFactType",
     "ProtocolError",
     "ProtocolVersion",
     "ScaleInfo",
-    "ScannedDevice",
     "Unit",
     "Unsubscribe",
     "WeightReading",

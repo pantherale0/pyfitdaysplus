@@ -19,9 +19,9 @@ prek run -a
 
 ## Code layout
 
-- `pyfitdaysplus/client.py` — public async API
-- `pyfitdaysplus/device.py` — connected scale
+- `pyfitdaysplus/device.py` — public `Device` API
 - `pyfitdaysplus/config.py` — configuration
 - `tests/` — pytest tests
 
 Keep I/O async and follow conventional commits.
+Scanning is the caller's job; connections go through bleak-retry-connector.

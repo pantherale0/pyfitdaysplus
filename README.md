@@ -44,30 +44,50 @@ for BLE, and a Linux/macOS/Windows host with Bluetooth.
 
 ## Quick start
 
+Discovery is **not** part of this library. Home Assistant can construct a
+`Device` from a stored address while the scale is off, then attach a bleak
+`BLEDevice` when an advertisement arrives:
+
+```python
+scale = Device(address="78:66:A5:D3:47:1E")
+# later, when the scanner sees the scale:
+scale.set_ble_device_and_advertisement_data(ble_device, advertisement)
+```
+
+Standalone scripts pass a bleak `BLEDevice` from `BleakScanner`:
+
 ```python
 import asyncio
-from pyfitdaysplus import KitchenScaleClient, Unit
+from bleak import BleakScanner
+from pyfitdaysplus import Device, Unit
 
 
 async def main() -> None:
-    client = KitchenScaleClient()
-    device = await client.scan_for_device(name="MY_SCALE")
-    # or: device = await client.scan_for_device(address="78:66:A5:D3:47:1E")
+    ble_device = await BleakScanner.find_device_by_name("MY_SCALE")
+    # Home Assistant: Device(service_info.device, service_info.advertisement)
+    scale = Device(ble_device)
 
-    async with device:
-        reading = await device.async_get_weight()
+    async with scale:
+        reading = await scale.async_get_weight()
         print(f"{reading.grams:.1f} g")
-        await device.tare()
-        await device.set_unit(Unit.G)
+        await scale.tare()
+        await scale.set_unit(Unit.G)
 
 
 asyncio.run(main())
 ```
 
+When the scanner path changes (new adapter or Bluetooth proxy), update the
+handle without constructing a new `Device`:
+
+```python
+scale.set_ble_device_and_advertisement_data(ble_device, advertisement)
+```
+
 ### Sync cache and event callbacks
 
 Notifications update an in-memory cache as they arrive. Sync code can read
-`device.weight` (or `device.battery`, `device.food`, `device.ack`) without
+`device.weight` (or `device.battery`, `device.food`, `device.ack`, `device.history`, `device.food_weigh`) without
 `await`, and you can subscribe to live updates:
 
 ```python
@@ -93,13 +113,18 @@ grams = None if reading is None else reading.grams
 
 unsubscribe()  # stop receiving callbacks
 unsubscribe_confirm()
+
+# Stored ✓ records (not live confirms):
+records = await device.read_history()
+for reading in records:
+    print(reading.recorded_at, reading.grams, reading.food_id)
 ```
 
 Example scripts (shared `--name` / `--address` / `-v`):
 
 | Script | What it does |
 | --- | --- |
-| `examples/read_weight.py` | Stream live weight (`--tare`, `--unit G`, `--send-food`, `--seconds`) |
+| `examples/read_weight.py` | Stream live weight (`--tare`, `--unit G`, `--send-food`, `--history`, `--seconds`) |
 | `examples/show_capabilities.py` | Print `CompatibilityFlag` after `probe_compatibility()` |
 | `examples/cycle_units.py` | Walk `set_unit` through kitchen units |
 | `examples/listen_voice.py` | Print `0xAF` food-selection notifies (“Hello Vita”) |
@@ -108,6 +133,7 @@ Example scripts (shared `--name` / `--address` / `-v`):
 uv run python examples/read_weight.py --name MY_SCALE
 uv run python examples/read_weight.py --tare --unit G
 uv run python examples/read_weight.py --send-food --seconds 60
+uv run python examples/read_weight.py --history --seconds 0
 uv run python examples/show_capabilities.py --address 78:66:A5:D3:47:1E
 uv run python examples/cycle_units.py --name MY_SCALE
 uv run python examples/listen_voice.py --name MY_SCALE
@@ -115,12 +141,16 @@ uv run python examples/listen_voice.py --name MY_SCALE
 
 ## Public API
 
-- `KitchenScaleClient.scan_for_device(name=..., address=...)`
-- `Device.connect()` / `disconnect()` / async context manager
-- `device.weight` / `device.battery` / `device.food` / `device.ack` — sync caches
+- `Device(ble_device=None, advertisement_data=None, *, address=...)` — construct from a bleak `BLEDevice`, or from a known address before the scale is in range
+- `device.set_ble_device_and_advertisement_data(ble_device, advertisement)` — refresh the BLE path (Home Assistant)
+- `Device.connect()` / `disconnect()` / async context manager (connects via [`bleak-retry-connector`](https://github.com/Bluetooth-Devices/bleak-retry-connector))
+- `device.subscribe(Event.CONNECT, callback)` / `subscribe(Event.DISCONNECT, …)` — GATT session lifecycle (scale address)
+- `device.weight` / `device.battery` / `device.food` / `device.ack` / `device.history` / `device.food_weigh` — sync caches
 - `await device.async_get_weight()` — cached reading, or wait for the first notify
 - `device.subscribe(Event.WEIGHT, callback)` — event callbacks (returns unsubscribe)
-- `device.subscribe(Event.ON_DEVICE_CONFIRM, callback)` — front-panel ✓ after a food upload (`0xAC` on KG2458; **one confirm per upload**)
+- `device.subscribe(Event.ON_DEVICE_CONFIRM, callback)` — front-panel ✓ (`0xAC` on KG2458; one per armed D6)
+- `device.subscribe(Event.HISTORY, callback)` — stored `0xAC` records during `read_history` (not a live ✓)
+- `await device.read_history()` — D4 dump of on-scale ✓ records (`recorded_at`, grams, `food_id`)
 - `device.subscribe(Event.FOOD, callback)` / `subscribe(Event.CAPABILITIES, …)` / `subscribe(Event.BATTERY, …)`
 - `async for reading in device.weights(): ...`
 - `await device.tare()`
@@ -128,8 +158,10 @@ uv run python examples/listen_voice.py --name MY_SCALE
 - `await device.set_unit(Unit.G)` (also `ML`, `LB`, `OZ`, …)
 - `await device.read_food_selection()` → `FoodInfoNotify` with `count` / `foods`
 - `async for notify in device.food_selections():` — `notify.foods` is `foodId` + `food_index`
-- `await device.set_nutrition(food_id, facts)` — cmd **213 / D5**
-- `await device.set_common_food(food)` — cmd **214 / D6** (split when long)
+- `await device.start_food_weigh(food)` / `await device.stop_food_weigh()` — food-weigh session (D6 arm / re-arm / 0 g clear)
+- `device.subscribe(Event.FOOD_WEIGH, callback)` — armed `CommonFood`, or `None` when the session ends
+- `await device.set_nutrition(food_id, facts)` — cmd **213 / D5** (low-level; not used on KG2458 food-weigh)
+- `await device.set_common_food(food)` — cmd **214 / D6** (low-level write; prefer `start_food_weigh`)
 - `await device.set_common_food_indexed(food_index, food)` — cmd **215 / D7**
 - `await device.delete_common_foods(entries)` — cmd **220 / DC** on protocol 113
 - Low-level encode helpers: `build_set_nutrition_frame`, `encode_nutrition_value_u24`, …
@@ -138,9 +170,6 @@ uv run python examples/listen_voice.py --name MY_SCALE
 - `device.battery` / `caps.battery` — percent from ``funInfo`` (`0xA0`)
 - `await device.probe_compatibility()` — merge funInfo with GATT (FFB4, Nordic DFU)
   and live weight, without extra command writes
-- Injectable BLE backend via `KitchenScaleClient(backend=...)` for tests
-- Connections use [`bleak-retry-connector`](https://github.com/Bluetooth-Devices/bleak-retry-connector)
-  (`establish_connection` + GATT service cache) instead of a raw `BleakClient.connect()`
 
 No raw UUIDs or wire command bytes are required for normal kitchen-scale use.
 
@@ -159,10 +188,9 @@ fills **`count` / `foods`**. Native packing is ``count u8`` then
 ``foodIndex u8 | foodId u32 BE`` per hit (identical to delete D8/DC).
 
 ```python
-from pyfitdaysplus import Event, KitchenScaleClient, parse_food_info_notify
+from pyfitdaysplus import Device, Event, parse_food_info_notify
 
-client = KitchenScaleClient()
-device = await client.scan_for_device(name="MY_SCALE")
+device = Device(ble_device)
 
 
 def on_voice_food(notify):
@@ -182,12 +210,14 @@ We do **not** stream audio or inject the **“Hello Vita”** wake phrase over B
 
 ### Writing custom food + nutrition (recommended)
 
-**Upload a food with your nutrition facts, then enter food-weigh mode.** Do
-that **before** each ✓. The scale’s LCD may still show a firmware catalog
-name (live KG2458 used USDA-style ids, e.g. 1077 → “MILK WHOLE”). Trust the
-macros you just sent, not the onboard US table. After ✓ the scale saves
-once (`Event.ON_DEVICE_CONFIRM` / history ``0xAC``) and will not confirm
-again until you upload another food.
+**Start a food-weigh session; the library talks to the scale the way Fitdays+ does.**
+Select a food (D6 even at 0 g). When a stable weight appears, D6 is sent again.
+Front-panel ✓ fires `Event.ON_DEVICE_CONFIRM` and the same food is re-armed.
+When the plate returns to 0 g, the session clears (`FOOD_WEIGH_CLEAR`). Do **not**
+send D5 or re-upload from Home Assistant yourself.
+
+The LCD may still show a firmware catalog name (live KG2458 used USDA-style ids,
+e.g. 1077 → “MILK WHOLE”). Trust the macros on the `CommonFood` you passed.
 
 ```python
 from pyfitdaysplus import CommonFood, Event, NutritionFact, NutritionFactType
@@ -206,16 +236,17 @@ def on_device_confirm(reading):
 
 async with device:
     device.subscribe(Event.ON_DEVICE_CONFIRM, on_device_confirm)
-    await device.set_common_food(food)
-    await device.set_nutrition(food.food_id, list(food.facts))
-    # weigh, press ✓ → on_device_confirm once
-    # upload again before the next ✓
+    await device.start_food_weigh(food)
+    # weigh, press ✓ → on_device_confirm; session stays armed until 0 g
+    await device.stop_food_weigh()  # optional; 0 g also clears
 ```
 
 | Method | Cmd | Notes |
 | --- | --- | --- |
-| `set_nutrition(food_id, facts)` | 213 / D5 | facts only (no LCD name); native ×10 |
-| `set_common_food(food)` | 214 / D6 | splitData chunks: `total_len \| seq \| slice` |
+| `start_food_weigh(food)` | 214 / D6 | session: arm, re-arm after ✓, clear at 0 g |
+| `stop_food_weigh()` | 214 / D6 | clear (`foodId=0`, empty name, 100 g) |
+| `set_nutrition(food_id, facts)` | 213 / D5 | facts only; native ×10; not sent by KG2458 food-weigh |
+| `set_common_food(food)` | 214 / D6 | low-level splitData write |
 | `set_common_food_indexed(food_index, food)` | 215 / D7 | `food_index` prefixes logical payload |
 | `delete_common_foods(entries)` | 220 / DC | Protocol 113 default; pass `use_alt_delete=False` for 216 / D8 |
 
@@ -235,7 +266,7 @@ Verified TX vectors for `device_type=0x42`:
 
 | Command | Hex |
 | --- | --- |
-| `app_reply` (209 / D1) | `ac42000200a000d173` |
+| `app_reply` (209 / D1) | `ac42000200a000d173` (funInfo) / `ac42000200ac00d17f` (history `0xAC`) |
 | `read_history` (212 / D4) | `ac42000000d4d4` |
 | `tare` (210 / D2, type 0) | built via setting path |
 

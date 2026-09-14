@@ -43,10 +43,15 @@ async def main() -> int:
     parser.add_argument(
         "--send-food",
         action="store_true",
-        help="Upload food (D6+D5) before weigh/✓; re-upload after each confirm",
+        help="Start a food-weigh session (D6 arm / re-arm / clear at 0 g)",
     )
     parser.add_argument("--food-id", type=int, default=42)
     parser.add_argument("--food-name", default="oats")
+    parser.add_argument(
+        "--history",
+        action="store_true",
+        help="Pull stored ✓ records (D4) after connect",
+    )
     args = parser.parse_args()
     configure_logging(args.verbose)
 
@@ -54,6 +59,16 @@ async def main() -> int:
     print(f"connecting {device.info.ble_name} {device.info.address}")
 
     async with device:
+        if args.history:
+            records = await device.read_history()
+            print(f"history {len(records)} record(s)")
+            for reading in records:
+                when = (
+                    "unknown"
+                    if reading.recorded_at is None
+                    else reading.recorded_at.isoformat()
+                )
+                print(f"  {when}  {reading.grams:.1f} g  food={reading.food_id}")
         if args.unit is not None:
             await device.set_unit(Unit[args.unit])
             print(f"unit {args.unit}")
@@ -77,12 +92,11 @@ async def main() -> int:
                 + ("advertised" if named else "not advertised; sending anyway")
             )
             await asyncio.sleep(0.5)
-            await device.set_common_food(food)
-            await device.set_nutrition(args.food_id, facts)
+            await device.start_food_weigh(food)
             print(
-                f"uploaded food_id={args.food_id} "
+                f"food-weigh food_id={args.food_id} "
                 f"(D6 name={args.food_name!r} may not appear on LCD); "
-                "weigh, press ✓ once, then upload again before the next ✓ "
+                "weigh and press ✓; session re-arms until the plate is empty "
                 f"(leave this running, default {args.seconds:.0f}s)"
             )
 
@@ -97,8 +111,7 @@ async def main() -> int:
         def on_device_confirm(reading: WeightReading) -> None:
             print(
                 f"on-device confirm {reading.value:.2f} {reading.unit.symbol}  "
-                f"food={reading.food_id}  "
-                "(re-upload food before the next ✓)"
+                f"food={reading.food_id}"
             )
 
         stop_weight = device.subscribe(Event.WEIGHT, on_weight)
@@ -108,6 +121,8 @@ async def main() -> int:
         finally:
             stop_weight()
             stop_confirm()
+            if args.send_food:
+                await device.stop_food_weigh()
     return 0
 
 

@@ -30,6 +30,8 @@ SET_NUTRITION_SCALE = 10.0
 CMD_APP_REPLY = 209
 CMD_SETTING = 210
 CMD_READ_HISTORY = 212
+# Fitdays+ requests another D4 page when a history callback has this many records.
+HISTORY_PAGE_SIZE = 10
 CMD_SET_NUTRITION = 213
 CMD_COMMON_FOOD = 214
 CMD_COMMON_FOOD_INDEXED = 215

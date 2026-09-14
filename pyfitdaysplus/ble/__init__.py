@@ -1,6 +1,5 @@
 """BLE helpers for ICOMON kitchen scales."""
 
-from .backend import BleBackend, DefaultBleBackend
-from .transport import BleTransport
+from .gatt import ScaleCharacteristics, discover_scale_characteristics
 
-__all__ = ["BleBackend", "BleTransport", "DefaultBleBackend"]
+__all__ = ["ScaleCharacteristics", "discover_scale_characteristics"]

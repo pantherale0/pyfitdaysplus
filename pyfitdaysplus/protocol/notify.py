@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from ..exceptions import ProtocolError
 from ..models import (
     BatteryInfo,
@@ -141,6 +143,10 @@ def parse_history_weight_records(payload: bytes) -> tuple[WeightReading, ...]:
         milligrams = int.from_bytes(record[5:8], "big")
         food_id = int.from_bytes(record[8:12], "big")
         user_id = int.from_bytes(record[12:16], "big")
+        recorded_at = datetime.fromtimestamp(
+            int.from_bytes(record[0:4], "big"),
+            tz=timezone.utc,
+        )
         readings.append(
             WeightReading(
                 milligrams=milligrams,
@@ -152,6 +158,7 @@ def parse_history_weight_records(payload: bytes) -> tuple[WeightReading, ...]:
                 is_tare=flags & 0x40 != 0,
                 food_id=food_id,
                 user_id=user_id,
+                recorded_at=recorded_at,
             )
         )
     return tuple(readings)

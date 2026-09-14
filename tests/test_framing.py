@@ -41,9 +41,16 @@ def test_checksum_known_vectors() -> None:
     history = bytes.fromhex("ac42000000d4d4")
     assert checksum(history[2:-1]) == history[-1] == 0xD4
 
+    history_ack = bytes.fromhex("ac42000200ac00d17f")
+    assert checksum(history_ack[2:-1]) == history_ack[-1] == 0x7F
+
 
 def test_build_app_reply_matches_vector() -> None:
     assert build_app_reply().hex() == "ac42000200a000d173"
+
+
+def test_build_app_reply_history_ack_matches_live_vector() -> None:
+    assert build_app_reply(notify_type=0xAC).hex() == "ac42000200ac00d17f"
 
 
 def test_build_read_history_matches_vector() -> None:

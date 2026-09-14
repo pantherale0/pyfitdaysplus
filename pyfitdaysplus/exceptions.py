@@ -7,10 +7,6 @@ class IcomonKitchenError(Exception):
     """Base error for this library."""
 
 
-class DeviceNotFoundError(IcomonKitchenError):
-    """No matching BLE device was found."""
-
-
 class NotConnectedError(IcomonKitchenError):
     """The scale is not connected."""
 

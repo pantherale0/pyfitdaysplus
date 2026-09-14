@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
-from pyfitdaysplus.device import Device
 from pyfitdaysplus.models import (
     CompatibilityFlag,
     DeviceFunction,
@@ -13,6 +14,7 @@ from pyfitdaysplus.models import (
 )
 from pyfitdaysplus.protocol.constants import DFU_SERVICE_UUID
 from pyfitdaysplus.protocol.notify import parse_fun_info
+from tests.factories import scale
 
 LIVE_A0 = bytes.fromhex(
     "ac42001a0000fc4f02262602262600003703e0014b00000001000000000000a008"
@@ -56,7 +58,7 @@ def test_named_flags_skip_zero() -> None:
 
 
 def test_merge_discovered_is_idempotent() -> None:
-    device = Device("78:66:A5:D3:47:1E", name="MY_SCALE")
+    device = scale()
     device._merge_discovered(CompatibilityFlag.WEIGHT)
     first = device.capabilities
     device._merge_discovered(CompatibilityFlag.WEIGHT)
@@ -68,7 +70,7 @@ def test_merge_discovered_is_idempotent() -> None:
 
 
 def test_fun_info_keeps_weight_and_dfu_across_notify() -> None:
-    device = Device("78:66:A5:D3:47:1E", name="MY_SCALE")
+    device = scale()
     device._merge_discovered(CompatibilityFlag.WEIGHT | CompatibilityFlag.OTA_DFU)
     device._handle_capabilities(LIVE_A0)
     caps = device.capabilities
@@ -80,7 +82,7 @@ def test_fun_info_keeps_weight_and_dfu_across_notify() -> None:
 
 @pytest.mark.asyncio
 async def test_first_weight_sets_weight_compatibility() -> None:
-    device = Device("78:66:A5:D3:47:1E", name="MY_SCALE")
+    device = scale()
     await device._dispatch_notification(bytes([0xA6, 0x02, 0x7C, 0xB8, 0x00, 0x01]))
     assert device.capabilities is not None
     assert CompatibilityFlag.WEIGHT in device.capabilities.compatibility
@@ -88,7 +90,10 @@ async def test_first_weight_sets_weight_compatibility() -> None:
 
 @pytest.mark.asyncio
 async def test_probe_compatibility_sees_dfu_service() -> None:
-    from tests.test_transport import (
+    from bleak import BleakClient
+
+    from pyfitdaysplus.ble.gatt import discover_scale_characteristics
+    from tests.test_gatt import (
         CHAR_NOTIFY_UUID,
         CHAR_WRITE_UUID,
         SERVICE_UUID,
@@ -96,7 +101,6 @@ async def test_probe_compatibility_sees_dfu_service() -> None:
         FakeClient,
         FakeService,
         FakeServices,
-        _transport,
     )
 
     client = FakeClient(
@@ -113,13 +117,9 @@ async def test_probe_compatibility_sees_dfu_service() -> None:
             ]
         )
     )
-    transport = _transport(client)
-    await transport.connect()
-    device = Device(
-        "78:66:A5:D3:47:1E",
-        name="MY_SCALE",
-        transport=transport,
-    )
+    device = scale()
+    device._client = cast(BleakClient, client)
+    device._chars = discover_scale_characteristics(client.services)
     caps = await device.probe_compatibility()
     assert CompatibilityFlag.OTA_DFU in caps.compatibility
     assert CompatibilityFlag.FILE_TRANSFER not in caps.compatibility

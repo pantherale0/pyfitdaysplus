@@ -4,17 +4,30 @@ General/V2 command frames: `AC | device_type | payload… | cmd | checksum`.
 
 This document covers **writing custom food + nutrition to the scale** (app → device).
 
-**Recommended session:** `set_common_food` and/or `set_nutrition` **first**, then
-weigh, then ✓. Repeat the upload before the next confirm. KG2458 emits one
-history ``0xAC`` on-device confirm per upload. LCD names may stay firmware catalog
-(USDA-style); trust the facts you sent.
+**Recommended session (Fitdays+ 1.14.1 on KG2458, live HCI 2026-09-13):**
+
+1. D6 named food (even at 0 g).
+2. When a stable non-zero weight appears, **D6 again** (same payload).
+3. Front-panel ✓ → history ``0xAC``. App replies with D1 ``00 ac 00``.
+4. After confirm, D6 the same food again (re-arm while weight still on the plate).
+5. When the plate returns to 0 g, D6 **clear**: `foodId=0`, empty name, 100 g, zero facts.
+6. Next food: D6 at 0 g, then D6 again when weight returns, then ✓.
+
+**Library session:** `start_food_weigh` / `stop_food_weigh` own this sequence.
+Integrators should not send D5 or re-upload after ✓.
+
+**History dump:** after connect the app sends D4 ``ac42000000d4d4``. The scale
+streams stored ✓ as the same ``0xAC`` notify (unix time + mg + foodId + userId).
+Ack each with D1 ``00 ac 00``. Java paginates when a callback list has ≥10
+records (``HISTORY_PAGE_SIZE``). A dump ``0xAC`` is not a live front-panel ✓.
 
 ## Command summary (protocol 113 / KG2458ULB-D)
 
 | Java cmd | Wire | API |
 | --- | --- | --- |
+| 212 | D4 | `read_history` (scale dumps stored ✓ as `0xAC`; ack each with D1 `00 ac 00`) |
 | 213 | D5 | `set_nutrition` |
-| 214 | D6 | `set_common_food` (splitData) |
+| 214 | D6 | `start_food_weigh` / `set_common_food` (splitData) |
 | 215 | D7 | `set_common_food_indexed` (splitData) |
 | 216 | D8 | `delete_common_foods` (legacy) |
 | 220 | DC | `delete_common_foods` (protocol 113 preferred) |
